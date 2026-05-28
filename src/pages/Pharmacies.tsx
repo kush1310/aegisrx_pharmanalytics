@@ -426,7 +426,7 @@ export default function Pharmacies() {
                     <IconPill size={22} />
                   </div>
                   <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
-                    <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
+                    <Text fw={600} size="md" className="text-slate-800 font-semibold tracking-tight" lineClamp={1}>
                       {pharmacy.name}
                     </Text>
                     <div className="flex items-center text-slate-400 mt-1 gap-1 text-xs font-semibold">

@@ -365,7 +365,7 @@ export default function Doctors() {
                         <IconStethoscope size={22} />
                       </div>
                       <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
-                        <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
+                        <Text fw={600} size="md" className="text-slate-800 font-semibold tracking-tight" lineClamp={1}>
                           {doctor.name}
                         </Text>
                         <Text size="xs" className="text-indigo-600 font-semibold uppercase tracking-wider" mt={2} lineClamp={1}>

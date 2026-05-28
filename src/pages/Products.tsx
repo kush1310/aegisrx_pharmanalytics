@@ -473,7 +473,7 @@ export default function Products() {
         </Card>
       ) : (
         <>
-          <SimpleGrid cols={{ base: 1, md: 3, xl: 4 }} spacing="lg">
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4, xl: 5 }} spacing="md">
             {products.map((product) => {
               const pharmacyCount = (product as any).pharmacyCount ?? 0;
               return (
@@ -483,26 +483,26 @@ export default function Products() {
                   onClick={() => openDetailsModal(product.id)}
                 >
                   <div className={styles.cardContent}>
-                    <Group wrap="nowrap" gap="md" align="center">
+                    <Group wrap="nowrap" gap="xs" align="center">
                       <div className={styles.avatar}>
-                        <IconPackage size={22} />
+                        <IconPackage size={16} />
                       </div>
                       <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
-                        <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
+                        <Text fw={600} size="xs" className="text-slate-700 font-semibold tracking-tight break-words">
                           {product.name}
                         </Text>
-                        <Group gap="xs" mt={6} align="center" wrap="wrap">
+                        <Group gap="xs" mt={4} align="center" wrap="wrap">
                           {product.pack ? (
-                            <Badge size="xs" color="gray" variant="outline" radius="sm" className="font-bold">
+                            <Badge size="xs" color="gray" variant="outline" radius="sm" className="font-semibold text-[9px] px-1.5 py-0.5">
                               {product.pack}
                             </Badge>
                           ) : (
-                            <Badge size="xs" color="gray" variant="dot" radius="sm">
-                              No Pack Size
+                            <Badge size="xs" color="gray" variant="dot" radius="sm" className="font-normal text-[9px] px-1.5 py-0.5">
+                              No Pack
                             </Badge>
                           )}
                           {pharmacyCount > 0 && (
-                            <Badge size="xs" variant="light" color="indigo" radius="sm" className="font-bold">
+                            <Badge size="xs" variant="light" color="indigo" radius="sm" className="font-bold text-[9px] px-1.5 py-0.5">
                               {pharmacyCount} linked
                             </Badge>
                           )}
@@ -518,22 +518,24 @@ export default function Products() {
                           variant="subtle" 
                           color="gray"
                           radius="md"
-                          size="md"
+                          size="xs"
                         >
-                          <IconDotsVertical size={18} />
+                          <IconDotsVertical size={14} />
                         </ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
                         <Menu.Item 
-                          leftSection={<IconEdit size={16} />} 
+                          leftSection={<IconEdit size={14} />} 
                           onClick={() => openEditModal(product.id, product.name, product.pack)}
+                          style={{ fontSize: '11px' }}
                         >
                           Edit Product
                         </Menu.Item>
                         <Menu.Item 
-                          leftSection={<IconTrash size={16} />} 
+                          leftSection={<IconTrash size={14} />} 
                           color="red" 
                           onClick={() => handleDelete(product.id, product.name)}
+                          style={{ fontSize: '11px' }}
                         >
                           Delete
                         </Menu.Item>

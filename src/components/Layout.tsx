@@ -112,6 +112,10 @@ export default function Layout() {
   useEffect(() => {
     updateActivity();
     navNavigate(location.pathname);
+    // Clear global search input and suggestions dropdown on route transitions
+    setSearchQuery('');
+    setSearchResults(null);
+    setShowSuggestions(false);
   }, [location.pathname, updateActivity, navNavigate]);
 
   // ── Unread notification badge — polls every 30 seconds ──────────
