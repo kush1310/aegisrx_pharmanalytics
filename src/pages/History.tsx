@@ -28,7 +28,8 @@ import {
   IconFilter,
   IconDatabase,
   IconChartBar,
-  IconEye
+  IconEye,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -197,6 +198,32 @@ export default function History() {
       'Status': u.status
     }));
     exportToCSV(csvData, `upload_history_${new Date().toISOString().split('T')[0]}`, ['File Name', 'Upload Date', 'File Size', 'Records', 'Format', 'Status']);
+  };
+
+  /**
+   * handleReprocess
+   *
+   * Calls POST /api/upload/intelligent/reprocess/:id to re-trigger the background
+   * parsing pipeline for a previously failed upload. The file bytes are already stored
+   * in the DB — only the processing step is re-executed with the fixed parser.
+   * Updates the local state to show PROCESSING status immediately.
+   *
+   * @param {number} uploadId - Primary key of the upload to reprocess.
+   */
+  const handleReprocess = async (uploadId: number) => {
+    try {
+      const result = await api.post(`/api/upload/intelligent/reprocess/${uploadId}`, {});
+      if (result.success) {
+        // Optimistically mark as PROCESSING in the local list
+        setUploads(prev => prev.map(u =>
+          u.id === uploadId ? { ...u, status: 'PROCESSING' } : u
+        ));
+        // Re-fetch after 6 seconds to show the completed status
+        setTimeout(() => fetchHistory(), 6000);
+      }
+    } catch (err) {
+      console.error('[History] Reprocess failed:', err);
+    }
   };
 
   // Fuzzy search
@@ -404,7 +431,7 @@ export default function History() {
               {searchQuery || filterFormat || filterStatus ? 'No files match your filters' : 'No upload history yet'}
             </Text>
             <Text size="sm" c="dimmed">
-              Upload an Excel file to see it here
+              Upload an Excel, CSV, or PDF file to see it here
             </Text>
             {!searchQuery && !filterFormat && !filterStatus && (
               <Button onClick={() => navigate('/upload')}>
@@ -534,30 +561,39 @@ export default function History() {
                                     <IconDotsVertical size={18} />
                                   </ActionIcon>
                                 </Menu.Target>
-                                <Menu.Dropdown>
-                                  <Menu.Item
-                                    leftSection={<IconDownload size={16} />}
-                                    onClick={() => handleDownload(upload.id, upload.fileName)}
-                                  >
-                                    Download
-                                  </Menu.Item>
-                                  {upload.detectedFormat === 'party_report' && (
+                                  <Menu.Dropdown>
                                     <Menu.Item
-                                      leftSection={<IconChartBar size={16} />}
-                                      onClick={() => navigate(`/history/${upload.id}`)}
+                                      leftSection={<IconDownload size={16} />}
+                                      onClick={() => handleDownload(upload.id, upload.fileName)}
                                     >
-                                      View Analytics
+                                      Download
                                     </Menu.Item>
-                                  )}
-                                  <Menu.Divider />
-                                  <Menu.Item
-                                    color="red"
-                                    leftSection={<IconTrash size={16} />}
-                                    onClick={() => handleDelete(upload.id)}
-                                  >
-                                    Delete
-                                  </Menu.Item>
-                                </Menu.Dropdown>
+                                    {upload.detectedFormat === 'party_report' && (
+                                      <Menu.Item
+                                        leftSection={<IconChartBar size={16} />}
+                                        onClick={() => navigate(`/history/${upload.id}`)}
+                                      >
+                                        View Analytics
+                                      </Menu.Item>
+                                    )}
+                                    {['ERROR_EMPTY', 'ERROR_UNKNOWN_FORMAT', 'ERROR'].includes(upload.status) && (
+                                      <Menu.Item
+                                        leftSection={<IconRefresh size={16} />}
+                                        color="orange"
+                                        onClick={() => handleReprocess(upload.id)}
+                                      >
+                                        Reprocess File
+                                      </Menu.Item>
+                                    )}
+                                    <Menu.Divider />
+                                    <Menu.Item
+                                      color="red"
+                                      leftSection={<IconTrash size={16} />}
+                                      onClick={() => handleDelete(upload.id)}
+                                    >
+                                      Delete
+                                    </Menu.Item>
+                                  </Menu.Dropdown>
                               </Menu>
                             </Group>
                           </Table.Td>

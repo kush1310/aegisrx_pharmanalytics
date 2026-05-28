@@ -500,9 +500,15 @@ function isPdfBuf(buf: Buffer): boolean {
  * extractRowsFromBuffer
  *
  * Parses either a PDF or an Excel/CSV buffer into a row-object array.
- * Used by the history enrichment loop and the analytics format detector.
- * PDF path: dynamically imports pdf-parse, splits text into lines, detects
- * tab vs comma delimiter, treats line 0 as headers.
+ * Used by the history enrichment loop to detect format and count records.
+ *
+ * PDF path — smart content-aware parser (matches parsePdfToRowsBackground):
+ *   1. Find the column-header line (contains 'product' + 'amount').
+ *   2. Product rows: line ending in 4 numeric groups → {Product, Free, FreeAmt, SaleQty, Amount}
+ *   3. Name rows: no trailing numbers → {Product} only (pharmacy header rows)
+ *   4. Party Total / Grand Total lines → skipped
+ *   5. Fallback: tab/comma delimiter if no header line detected.
+ *
  * Excel path: delegates to XLSX.read().
  *
  * @param  {Buffer} buf   - Raw file bytes.
@@ -522,14 +528,46 @@ async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
 
       if (rawLines.length < 2) return [];
 
+      // Find the column-header line: must contain BOTH 'product' AND 'amount'
+      let headerLineIdx = -1;
+      for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
+        const lower = rawLines[i].toLowerCase();
+        if (lower.includes('product') && lower.includes('amount')) {
+          headerLineIdx = i;
+          break;
+        }
+      }
+
+      if (headerLineIdx !== -1) {
+        const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+        const rows: any[] = [];
+
+        for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
+          const line  = rawLines[i];
+          const lower = line.toLowerCase();
+
+          if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+
+          const match = productRowRegex.exec(line);
+          if (match) {
+            rows.push({
+              Product: match[1].trim(),
+              Free:    match[2].replace(/,/g, ''),
+              FreeAmt: match[3].replace(/,/g, ''),
+              SaleQty: match[4].replace(/,/g, ''),
+              Amount:  match[5].replace(/,/g, ''),
+            });
+          } else {
+            rows.push({ Product: line });
+          }
+        }
+        return rows;
+      }
+
+      // Fallback: delimiter-based for CSV/TSV inside PDF
       const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
       const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
-
-      const headers: string[] = rawLines[0]
-        .split(delimiter)
-        .map((h: string) => h.trim())
-        .filter(Boolean);
-
+      const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
       if (headers.length === 0) return [];
 
       const rows: any[] = [];
@@ -541,6 +579,7 @@ async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
         rows.push(row);
       }
       return rows;
+
     } catch (err) {
       console.error('[excel/history] pdf-parse failed:', err);
       return [];

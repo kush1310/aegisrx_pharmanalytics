@@ -18,13 +18,27 @@ function isPdfBuffer(buf: Buffer): boolean {
 /**
  * parsePdfToRowsBackground
  *
- * Async wrapper around pdf-parse for use inside the background worker.
- * Extracts text from the PDF, splits it into lines, detects the delimiter
- * (tab vs comma), treats the first line as headers, and converts subsequent
- * lines into row objects.
+ * Content-aware PDF parser for pharma party/sales report PDFs.
+ * Identical parsing strategy to parsePdfToRows in intelligentRouter.ts.
+ *
+ * Strategy (handles space-separated table PDFs like the Pharma Distributors format):
+ *   1. pdf-parse extracts the full document text as a flat string.
+ *   2. Lines are split, trimmed, and filtered.
+ *   3. The first line that contains BOTH 'product' and 'amount' keywords (case-insensitive)
+ *      is treated as the column-header line. All preceding lines (company info, date range,
+ *      report title) are skipped entirely.
+ *   4. Each subsequent line is classified:
+ *      - 4 numeric tokens at the end  → product row {Product, Free, FreeAmt, SaleQty, Amount}
+ *      - No trailing numeric tokens   → pharmacy/party name row {Product} (no Amount key)
+ *      - Starts with 'Party Total' or 'Grand Total' → skipped
+ *   5. Pharmacy name rows have no Amount key, so processSalesAnalytics treats them as
+ *      currentPharmacyName headers via the existing isPharmacyHeader detection.
+ *
+ * Fallback: if no header line is found, uses tab or comma delimiter on line 0.
  *
  * @param  {Buffer} buf      - PDF file buffer.
- * @returns {Promise<any[]>} - Array of row objects; empty array on failure.
+ * @returns {Promise<any[]>} - Array of row objects keyed Product/Free/FreeAmt/SaleQty/Amount.
+ * @edge-cases               - Returns empty array if pdf-parse throws or text is blank.
  */
 async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
   try {
@@ -39,9 +53,55 @@ async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
 
     if (rawLines.length < 2) return [];
 
-    const tabCount   = rawLines.filter((l: string) => l.includes('\t')).length;
-    const delimiter  = tabCount > rawLines.length / 2 ? '\t' : ',';
-    const headers    = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
+    // ── Strategy 1: Table-based party report PDFs ────────────────────────────
+    // Find the column-header line: must contain BOTH 'product' AND 'amount'
+    let headerLineIdx = -1;
+    for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
+      const lower = rawLines[i].toLowerCase();
+      if (lower.includes('product') && lower.includes('amount')) {
+        headerLineIdx = i;
+        break;
+      }
+    }
+
+    if (headerLineIdx !== -1) {
+      // Product row pattern: any text (product name) followed by exactly 4 numeric groups.
+      // Handles Indian number formats (digits, commas, dots).
+      const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+      const rows: any[] = [];
+
+      for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
+        const line  = rawLines[i];
+        const lower = line.toLowerCase();
+
+        // Skip Party Total and Grand Total summary rows — they duplicate product data
+        if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+
+        const match = productRowRegex.exec(line);
+        if (match) {
+          // Product row: name + Free + FreeAmt + SaleQty + Amount
+          rows.push({
+            Product: match[1].trim(),
+            Free:    match[2].replace(/,/g, ''),
+            FreeAmt: match[3].replace(/,/g, ''),
+            SaleQty: match[4].replace(/,/g, ''),
+            Amount:  match[5].replace(/,/g, ''),
+          });
+        } else {
+          // Pharmacy / party name row — emit with only Product key (no Amount).
+          // processSalesAnalytics checks: isPharmacyHeader = (amountVal === undefined || isNaN(amountNum))
+          // This correctly sets currentPharmacyName = line.
+          rows.push({ Product: line });
+        }
+      }
+
+      return rows;
+    }
+
+    // ── Strategy 2: Fallback for CSV/TSV-inside-PDF ──────────────────────────
+    const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
+    const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
+    const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
     if (headers.length === 0) return [];
 
     const rows: any[] = [];
@@ -53,6 +113,7 @@ async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
       rows.push(row);
     }
     return rows;
+
   } catch (err) {
     console.error('[UniversalProcessor] parsePdfToRowsBackground failed:', err);
     return [];

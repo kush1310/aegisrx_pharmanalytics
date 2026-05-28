@@ -25,15 +25,21 @@ function isPdfBuffer(buf: Buffer): boolean {
 /**
  * parsePdfToRows
  *
- * Extracts text from a PDF buffer via pdf-parse and converts it into a
- * row-object array compatible with analyzeHeaders and processUploadInBackground.
+ * Content-aware PDF parser for pharma party/sales report PDFs.
  *
- * Strategy:
- *   1. pdf-parse extracts the full document text.
- *   2. Text is split into non-empty lines.
- *   3. Delimiter is detected: tab if most lines contain tabs, otherwise comma.
- *   4. First non-empty line is treated as the header row.
- *   5. Subsequent lines become data rows keyed by the header columns.
+ * Strategy (handles space-separated table PDFs like the Pharma Distributors format):
+ *   1. pdf-parse extracts the full document text as a flat string.
+ *   2. Lines are split, trimmed, and de-duplicated.
+ *   3. The first line that contains BOTH 'product' and 'amount' keywords is treated
+ *      as the column-header line. All preceding lines (company info, title) are skipped.
+ *   4. Each subsequent line is classified:
+ *      - 4 numeric tokens at the end  → product row {Product, Free, FreeAmt, SaleQty, Amount}
+ *      - No numeric tokens at end      → pharmacy/party name row {Product} (no Amount key)
+ *      - Starts with 'party total' or 'grand total' → skipped
+ *   5. The pharmacy rows have no Amount key, which causes processSalesAnalytics to
+ *      treat them as currentPharmacyName headers (isPharmacyHeader detection).
+ *
+ * Fallback: if no header line is detected, falls back to tab or comma delimiter.
  *
  * @param  {Buffer} buf       - PDF file buffer.
  * @returns {Promise<any[]>}  - Array of row objects; empty array on failure.
@@ -42,8 +48,8 @@ function isPdfBuffer(buf: Buffer): boolean {
 async function parsePdfToRows(buf: Buffer): Promise<any[]> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
-    const pdfData = await pdfParse(buf);
-    const text = pdfData.text || '';
+    const pdfData  = await pdfParse(buf);
+    const text     = pdfData.text || '';
 
     const rawLines: string[] = text
       .split('\n')
@@ -52,29 +58,66 @@ async function parsePdfToRows(buf: Buffer): Promise<any[]> {
 
     if (rawLines.length < 2) return [];
 
-    // Prefer tab delimiter when more than half the lines contain a tab character
-    const tabCount = rawLines.filter((l: string) => l.includes('\t')).length;
-    const delimiter: string = tabCount > rawLines.length / 2 ? '\t' : ',';
+    // ── Strategy 1: Table-based party report PDFs ────────────────────────
+    // Find the column-header line: must contain both 'product' and 'amount'
+    let headerLineIdx = -1;
+    for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
+      const lower = rawLines[i].toLowerCase();
+      if (lower.includes('product') && lower.includes('amount')) {
+        headerLineIdx = i;
+        break;
+      }
+    }
 
-    const headers: string[] = rawLines[0]
-      .split(delimiter)
-      .map((h: string) => h.trim())
-      .filter(Boolean);
+    if (headerLineIdx !== -1) {
+      // Regex: product name (greedy text) followed by exactly 4 numeric groups
+      // Handles Indian number formats (digits + optional commas/dots)
+      const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+      const rows: any[] = [];
 
+      for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
+        const line  = rawLines[i];
+        const lower = line.toLowerCase();
+
+        // Skip Party Total and Grand Total summary rows
+        if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+
+        const match = productRowRegex.exec(line);
+        if (match) {
+          // Product row: emit all four numeric columns
+          rows.push({
+            Product: match[1].trim(),
+            Free:    match[2].replace(/,/g, ''),
+            FreeAmt: match[3].replace(/,/g, ''),
+            SaleQty: match[4].replace(/,/g, ''),
+            Amount:  match[5].replace(/,/g, ''),
+          });
+        } else {
+          // Pharmacy / party name row — no Amount key so processSalesAnalytics
+          // detects it as a pharmacy header via the isPharmacyHeader check
+          rows.push({ Product: line });
+        }
+      }
+
+      return rows;
+    }
+
+    // ── Strategy 2: Fallback for CSV/TSV-inside-PDF ──────────────────────
+    const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
+    const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
+    const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
     if (headers.length === 0) return [];
 
     const rows: any[] = [];
-    for (let lineIdx = 1; lineIdx < rawLines.length; lineIdx++) {
-      const cells = rawLines[lineIdx].split(delimiter).map((c: string) => c.trim());
+    for (let i = 1; i < rawLines.length; i++) {
+      const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
       if (cells.every((c: string) => c === '')) continue;
       const row: Record<string, string> = {};
-      headers.forEach((header: string, colIdx: number) => {
-        row[header] = cells[colIdx] ?? '';
-      });
+      headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
       rows.push(row);
     }
-
     return rows;
+
   } catch (err) {
     console.error('[intelligentRouter] pdf-parse failed:', err);
     return [];
@@ -188,6 +231,47 @@ intelligentRouter.get('/status/:id', async (c) => {
     return c.json({ success: true, status: upload.status, format });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to fetch status' }, 500);
+  }
+});
+
+// POST /api/upload/intelligent/reprocess/:id — re-trigger background processing for a failed upload
+/**
+ * reprocess
+ *
+ * Re-triggers the full background processing pipeline for an upload that
+ * previously failed (ERROR_EMPTY, ERROR_UNKNOWN_FORMAT, ERROR status).
+ * Used after a parser fix so the user does not need to re-upload the file.
+ *
+ * Steps:
+ *   1. Reset upload status to PROCESSING.
+ *   2. Delete any stale salesTransactions linked to this uploadId to avoid duplicates.
+ *   3. Re-dispatch processUploadInBackground with the stored file bytes.
+ *
+ * @param id - Upload record primary key from route param.
+ * @returns  - {success, message} on success; 404 if upload not found.
+ */
+intelligentRouter.post('/reprocess/:id', async (c) => {
+  try {
+    const db = getDb();
+    const id = Number(c.req.param('id'));
+
+    const upload = db.select().from(excelUploads).where(eq(excelUploads.id, id)).get();
+    if (!upload) return c.json({ success: false, error: 'Upload not found' }, 404);
+
+    // Clear any stale (partial) sales transactions from a failed previous run
+    const { salesTransactions: salesTxns } = await import('../db/schema');
+    db.delete(salesTxns).where(eq(salesTxns.uploadId, id)).run();
+
+    // Reset status so the UI shows PROCESSING and history refreshes
+    db.update(excelUploads).set({ status: 'PROCESSING' }).where(eq(excelUploads.id, id)).run();
+
+    // Re-dispatch background processor with the stored file bytes
+    processUploadInBackground(id);
+
+    return c.json({ success: true, message: 'Reprocessing started.' });
+  } catch (err: any) {
+    console.error('[intelligentRouter/reprocess]', err);
+    return c.json({ success: false, error: `Reprocess failed: ${err.message}` }, 500);
   }
 });
 
