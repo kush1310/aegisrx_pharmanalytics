@@ -56,6 +56,7 @@ export default function UniversalUpload() {
     }
 
     setStep('analyzing');
+    const startTime = Date.now();
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -83,12 +84,32 @@ export default function UniversalUpload() {
       };
       
       const formatLabel = formatLabels[formatStr] || formatLabels.unknown;
-      setDetectedModule(`${formatLabel} (${Math.round(confidenceScore * 100)}% Confidence)`);
-      
-      // Wait a little bit to show the "Detected" message before showing complete
-      setTimeout(() => {
-        setStep('complete');
-      }, 3000);
+      const targetConfidence = Math.round(confidenceScore * 100);
+
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(1000, 6000 - elapsed);
+
+      // Increment confidence gradually over the remaining time
+      const totalSteps = 40;
+      const stepDuration = remainingTime / totalSteps;
+      let currentStep = 0;
+
+      const interval = setInterval(() => {
+        currentStep++;
+        const progress = currentStep / totalSteps;
+        // Ease out quadratic
+        const easeProgress = 1 - Math.pow(1 - progress, 2);
+        const currentConfidence = Math.round(easeProgress * targetConfidence);
+
+        setDetectedModule(`${formatLabel} (${currentConfidence}% Confidence)`);
+
+        if (currentStep >= totalSteps) {
+          clearInterval(interval);
+          setTimeout(() => {
+            setStep('complete');
+          }, 300);
+        }
+      }, stepDuration);
 
     } catch (error: any) {
       notifications.show({ title: 'Upload Failed', message: String(error?.message || error), color: 'red', icon: <IconX size={18} /> });

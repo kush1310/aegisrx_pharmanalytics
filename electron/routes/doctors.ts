@@ -56,7 +56,24 @@ doctorsRouter.get('/', async (c) => {
       rows = await db.select().from(doctors).orderBy(desc(doctors.createdAt));
     }
 
-    return c.json({ success: true, data: rows });
+    // Fetch all pharmacies to construct linked lists for each doctor
+    const allPharmacies = db.select().from(pharmacies).all();
+    const pharmaciesByDoctorId = new Map<number, any[]>();
+    for (const pharmacy of allPharmacies) {
+      if (pharmacy.doctorId) {
+        if (!pharmaciesByDoctorId.has(pharmacy.doctorId)) {
+          pharmaciesByDoctorId.set(pharmacy.doctorId, []);
+        }
+        pharmaciesByDoctorId.get(pharmacy.doctorId)!.push(pharmacy);
+      }
+    }
+
+    const data = rows.map(doctor => ({
+      ...doctor,
+      pharmacies: pharmaciesByDoctorId.get(doctor.id) || []
+    }));
+
+    return c.json({ success: true, data });
   } catch (err) {
     console.error('[doctors/get]', err);
     return c.json({ success: false, error: 'Failed to fetch doctors' }, 500);

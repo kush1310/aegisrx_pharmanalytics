@@ -18,7 +18,7 @@ export default {
         'pl-red': '#ef4444',
       },
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['Outfit', 'sans-serif'],
       },
     },
   },

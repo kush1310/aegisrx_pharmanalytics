@@ -408,70 +408,58 @@ export default function Pharmacies() {
           </Stack>
         </Card>
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="lg">
           {filteredPharmacies.map((pharmacy, index) => (
             <MotionCard
               key={pharmacy.id}
-              shadow="sm"
-              radius="lg"
               className={styles.pharmacyCard}
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              whileHover={{ 
-                scale: 1.03, 
-                rotateY: 2, 
-                rotateX: 2, 
-                boxShadow: "0px 10px 30px rgba(0, 0, 0, 0.15)"
-              }}
-              transition={{ 
-                delay: index * 0.05,
-                type: 'spring',
-                stiffness: 400,
-                damping: 25
-              }}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.03, duration: 0.3 }}
             >
               <div 
                 className={styles.cardContent}
                 onClick={() => navigate(`/pharmacies/${pharmacy.id}`)}
               >
-                <Group wrap="nowrap" gap="md">
+                <Group wrap="nowrap" gap="md" align="center">
                   <div className={styles.avatar}>
-                    <IconPill size={28} />
+                    <IconPill size={22} />
                   </div>
-                  <div className={styles.info}>
-                    <Text fw={800} size="md" className="leading-tight break-words">
+                  <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
+                    <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
                       {pharmacy.name}
                     </Text>
-                    <Text c="dimmed" size="sm">
-                      <IconUser size={12} style={{ marginRight: 4 }} />
-                      {pharmacy.ownerName}
-                    </Text>
+                    <div className="flex items-center text-slate-400 mt-1 gap-1 text-xs font-semibold">
+                      <IconUser size={13} className="shrink-0" />
+                      <span className="truncate">{pharmacy.ownerName}</span>
+                    </div>
                   </div>
                 </Group>
 
-                <Stack gap="xs" mt="md">
-                  <Group gap="xs">
-                    <IconPhone size={14} color="var(--color-text-muted)" />
-                    <Text size="sm" c="dimmed">{pharmacy.contact}</Text>
-                  </Group>
-                  <Group gap="xs">
-                    <IconMapPin size={14} color="var(--color-text-muted)" />
-                    <Text size="sm" c="dimmed" lineClamp={1}>{pharmacy.address}</Text>
-                  </Group>
-                  <Group gap="xs">
-                    <IconLicense size={14} color="var(--color-text-muted)" />
-                    <Text size="sm" c="dimmed">{pharmacy.licenseId}</Text>
-                  </Group>
+                <Stack gap="sm" mt="lg">
+                  <div className="flex items-center gap-2.5 w-full">
+                    <IconPhone size={15} className="shrink-0 text-slate-400" />
+                    <Text size="sm" className="text-slate-500 font-medium truncate">{pharmacy.contact}</Text>
+                  </div>
+                  <div className="flex items-start gap-2.5 w-full">
+                    <IconMapPin size={15} className="shrink-0 mt-0.5 text-slate-400" />
+                    <Text size="sm" className="text-slate-500 font-medium leading-relaxed" lineClamp={2}>{pharmacy.address}</Text>
+                  </div>
+                  <div className="flex items-center gap-2.5 w-full">
+                    <IconLicense size={15} className="shrink-0 text-slate-400" />
+                    <Text size="sm" className="text-slate-500 font-medium truncate">{pharmacy.licenseId}</Text>
+                  </div>
                 </Stack>
               </div>
 
-
-              <Group justify="flex-end" align="center" mt="md" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+              <Group justify="flex-end" align="center" mt="lg" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
                 <Menu position="bottom-end" withinPortal>
                   <Menu.Target>
                     <ActionIcon 
                       variant="subtle" 
                       color="gray"
+                      radius="md"
+                      size="md"
                     >
                       <IconDotsVertical size={18} />
                     </ActionIcon>

@@ -101,6 +101,8 @@ export default function Products() {
   const [localSearch, setLocalSearch] = useState('');
   const [sortField, setSortField] = useState<'name' | 'pharmacyCount' | 'createdAt'>('createdAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isExportingCSV, setIsExportingCSV] = useState(false);
 
   /**
    * isInitialLoading — true on page mount.
@@ -309,12 +311,29 @@ export default function Products() {
             <Button
               variant="light" color="indigo"
               leftSection={<IconDownload size={18} />}
-              onClick={() => {
-                const exportData = products.map(p => ({
-                  name: p.name,
-                  pharmacyCount: (p as any).pharmacyCount || 0
-                }));
-                exportProductListPDF(exportData);
+              loading={isExportingPDF}
+              onClick={async () => {
+                setIsExportingPDF(true);
+                try {
+                  const res = await api.get<any>(`/api/products?page=1&limit=100000&export=true`);
+                  if (res.success && res.data) {
+                    const exportData = res.data.map((p: any) => ({
+                      name: p.name,
+                      pharmacyCount: p.pharmacyCount || 0
+                    }));
+                    await exportProductListPDF(exportData);
+                  } else {
+                    throw new Error(res.error || 'Failed to fetch all products');
+                  }
+                } catch (err: any) {
+                  notifications.show({
+                    title: 'Export Failed',
+                    message: err.message || 'Could not fetch entire product list.',
+                    color: 'red'
+                  });
+                } finally {
+                  setIsExportingPDF(false);
+                }
               }}
             >
               Export PDF
@@ -322,13 +341,30 @@ export default function Products() {
             <Button
               variant="light" color="teal"
               leftSection={<IconDownload size={18} />}
-              onClick={() => {
-                const csvData = products.map(p => ({
-                  'Product Name': p.name,
-                  'Pharmacies': (p as any).pharmacyCount || 0,
-                  'Created': new Date(p.createdAt).toLocaleDateString('en-IN')
-                }));
-                exportToCSV(csvData, `products_${new Date().toISOString().split('T')[0]}`, ['Product Name', 'Pharmacies', 'Created']);
+              loading={isExportingCSV}
+              onClick={async () => {
+                setIsExportingCSV(true);
+                try {
+                  const res = await api.get<any>(`/api/products?page=1&limit=100000&export=true`);
+                  if (res.success && res.data) {
+                    const csvData = res.data.map((p: any) => ({
+                      'Product Name': p.name,
+                      'Pharmacies': p.pharmacyCount || 0,
+                      'Created': new Date(p.createdAt).toLocaleDateString('en-IN')
+                    }));
+                    exportToCSV(csvData, `products_${new Date().toISOString().split('T')[0]}`, ['Product Name', 'Pharmacies', 'Created']);
+                  } else {
+                    throw new Error(res.error || 'Failed to fetch all products');
+                  }
+                } catch (err: any) {
+                  notifications.show({
+                    title: 'Export Failed',
+                    message: err.message || 'Could not fetch entire product list.',
+                    color: 'red'
+                  });
+                } finally {
+                  setIsExportingCSV(false);
+                }
               }}
             >
               Export CSV
@@ -437,47 +473,73 @@ export default function Products() {
         </Card>
       ) : (
         <>
-          <SimpleGrid cols={{ base: 1, md: 3, xl: 4 }} spacing="md">
+          <SimpleGrid cols={{ base: 1, md: 3, xl: 4 }} spacing="lg">
             {products.map((product) => {
               const pharmacyCount = (product as any).pharmacyCount ?? 0;
               return (
                 <Card
                   key={product.id}
-                  className={`${styles.productCard} cursor-pointer hover:border-pl-indigo hover:shadow-md transition-all duration-200`}
-                  shadow="sm"
-                  radius="lg"
-                  p="md"
+                  className={styles.productCard}
                   onClick={() => openDetailsModal(product.id)}
                 >
-                  <Group justify="space-between" wrap="nowrap">
-                    <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-                      <IconPackage size={24} color="var(--color-primary)" />
-                      <div style={{ minWidth: 0, width: '100%' }}>
-                        <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
-                          <Text fw={800} className="leading-tight break-words text-pl-navy" style={{ flex: 1 }}>{product.name}</Text>
-                          {product.pack && (
-                            <Badge size="xs" color="gray" variant="outline" style={{ flexShrink: 0 }}>{product.pack}</Badge>
+                  <div className={styles.cardContent}>
+                    <Group wrap="nowrap" gap="md" align="center">
+                      <div className={styles.avatar}>
+                        <IconPackage size={22} />
+                      </div>
+                      <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
+                        <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
+                          {product.name}
+                        </Text>
+                        <Group gap="xs" mt={6} align="center" wrap="wrap">
+                          {product.pack ? (
+                            <Badge size="xs" color="gray" variant="outline" radius="sm" className="font-bold">
+                              {product.pack}
+                            </Badge>
+                          ) : (
+                            <Badge size="xs" color="gray" variant="dot" radius="sm">
+                              No Pack Size
+                            </Badge>
+                          )}
+                          {pharmacyCount > 0 && (
+                            <Badge size="xs" variant="light" color="indigo" radius="sm" className="font-bold">
+                              {pharmacyCount} linked
+                            </Badge>
                           )}
                         </Group>
-                        {pharmacyCount > 0 && (
-                          <Badge size="xs" variant="light" color="blue" mt={4}>
-                            {pharmacyCount} {pharmacyCount === 1 ? 'pharmacy' : 'pharmacies'}
-                          </Badge>
-                        )}
                       </div>
                     </Group>
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <Menu position="bottom-end">
-                        <Menu.Target>
-                          <ActionIcon variant="subtle" color="gray"><IconDotsVertical size={18} /></ActionIcon>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                          <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEditModal(product.id, product.name, product.pack)}>Edit</Menu.Item>
-                          <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDelete(product.id, product.name)}>Delete</Menu.Item>
-                        </Menu.Dropdown>
-                      </Menu>
-                    </div>
-                  </Group>
+                  </div>
+
+                  <div className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon 
+                          variant="subtle" 
+                          color="gray"
+                          radius="md"
+                          size="md"
+                        >
+                          <IconDotsVertical size={18} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item 
+                          leftSection={<IconEdit size={16} />} 
+                          onClick={() => openEditModal(product.id, product.name, product.pack)}
+                        >
+                          Edit Product
+                        </Menu.Item>
+                        <Menu.Item 
+                          leftSection={<IconTrash size={16} />} 
+                          color="red" 
+                          onClick={() => handleDelete(product.id, product.name)}
+                        >
+                          Delete
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </div>
                 </Card>
               );
             })}

@@ -685,8 +685,12 @@ export const exportProfilePDF = async (
     ` : ''}
   `;
 
-  const html = wrapHtmlTemplate(`Dr. ${doctor.name}`, `${doctor.specialization}  |  ${doctor.qualification}`, bodyHtml);
-  await downloadPDFFromHTML(html, `AegisRx_Dr_${doctor.name.replace(/\s+/g, '_')}.pdf`);
+  const rawDoctorName = doctor.name.trim();
+  const cleanDoctorName = rawDoctorName.replace(/^(dr\.\s*|dr\s+)+/i, '');
+  const displayName = `Dr. ${cleanDoctorName}`;
+
+  const html = wrapHtmlTemplate(displayName, `${doctor.specialization}  |  ${doctor.qualification}`, bodyHtml);
+  await downloadPDFFromHTML(html, `AegisRx_Dr_${cleanDoctorName.replace(/\s+/g, '_')}.pdf`);
 };
 
 export const exportPharmacyPDF = async (

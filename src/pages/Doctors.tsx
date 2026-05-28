@@ -347,68 +347,55 @@ export default function Doctors() {
               </Stack>
             </Card>
           ) : (
-            <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="md">
+            <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="lg">
               {filteredDoctors.map((doctor, index) => (
                 <MotionCard
                   key={doctor.id}
-                  shadow="sm"
-                  radius="lg"
                   className={styles.doctorCard}
-                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  whileHover={{ 
-                    scale: 1.03, 
-                    rotateY: 2, 
-                    rotateX: 2, 
-                    boxShadow: "0px 10px 30px rgba(0, 0, 0, 0.15)"
-                  }}
-                  transition={{ 
-                    delay: index * 0.05,
-                    type: 'spring',
-                    stiffness: 400,
-                    damping: 25
-                  }}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.03, duration: 0.3 }}
                 >
                   <div 
                     className={styles.cardContent}
                     onClick={() => navigate(`/doctors/${doctor.id}`)}
                   >
-                    <Group wrap="nowrap" gap="md">
+                    <Group wrap="nowrap" gap="md" align="center">
                       <div className={styles.avatar}>
-                        <IconStethoscope size={28} />
+                        <IconStethoscope size={22} />
                       </div>
-                      <div className={styles.info}>
-                        <Text fw={800} size="md" lineClamp={1}>
-                           {doctor.name}
+                      <div className={styles.info} style={{ minWidth: 0, flex: 1 }}>
+                        <Text fw={800} size="md" className="text-slate-800 font-extrabold tracking-tight" lineClamp={1}>
+                          {doctor.name}
                         </Text>
-                        <Text c="dimmed" size="sm" lineClamp={1}>
+                        <Text size="xs" className="text-indigo-600 font-semibold uppercase tracking-wider" mt={2} lineClamp={1}>
                           {doctor.specialization}
                         </Text>
                       </div>
                     </Group>
 
-                    <Stack gap="xs" mt="md">
-                      <Group gap="xs">
-                        <IconPhone size={14} color="var(--color-text-muted)" />
-                        <Text size="sm" c="dimmed">{doctor.contact}</Text>
-                      </Group>
-                      <Group gap="xs">
-                        <IconMapPin size={14} color="var(--color-text-muted)" />
-                        <Text size="sm" c="dimmed" lineClamp={1}>{doctor.address}</Text>
-                      </Group>
+                    <Stack gap="sm" mt="lg">
+                      <div className="flex items-center gap-2.5 w-full">
+                        <IconPhone size={15} className="shrink-0 text-slate-400" />
+                        <Text size="sm" className="text-slate-500 font-medium truncate">{doctor.contact}</Text>
+                      </div>
+                      <div className="flex items-start gap-2.5 w-full">
+                        <IconMapPin size={15} className="shrink-0 mt-0.5 text-slate-400" />
+                        <Text size="sm" className="text-slate-500 font-medium leading-relaxed" lineClamp={2}>{doctor.address}</Text>
+                      </div>
                       {getPharmacyCount(doctor) > 0 && (
-                        <Group gap="xs">
-                          <IconPrescription size={14} color="var(--color-text-muted)" />
-                          <Text size="sm" c="dimmed">
-                            {getPharmacyCount(doctor)} pharmac{getPharmacyCount(doctor) !== 1 ? 'ies' : 'y'} linked
+                        <div className="flex items-center gap-2.5 w-full">
+                          <IconPrescription size={15} className="shrink-0 text-slate-400" />
+                          <Text size="sm" className="text-slate-500 font-semibold">
+                            {getPharmacyCount(doctor)} linked pharmac{getPharmacyCount(doctor) !== 1 ? 'ies' : 'y'}
                           </Text>
-                        </Group>
+                        </div>
                       )}
                     </Stack>
                   </div>
 
-                  <Group justify="space-between" align="center" mt="md" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
-                    <Badge size="sm" variant="light">
+                  <Group justify="space-between" align="center" mt="lg" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+                    <Badge size="sm" variant="light" color="indigo" radius="md" px="xs" py="md" className="font-bold">
                       {doctor.qualification}
                     </Badge>
 
@@ -417,6 +404,8 @@ export default function Doctors() {
                         <ActionIcon 
                           variant="subtle" 
                           color="gray"
+                          radius="md"
+                          size="md"
                         >
                           <IconDotsVertical size={18} />
                         </ActionIcon>
