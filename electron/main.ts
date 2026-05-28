@@ -62,6 +62,7 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
 // Explicitly set userData path to a sub-folder to avoid root permission conflicts
 app.setPath('userData', path.join(app.getPath('appData'), 'surat-pharma-v2'));
+app.setAppUserModelId('com.suratpharma.aegisrx');
 
 // ── Database init ──────────────────────────────────────────────────────
 function initializeDatabase() {
@@ -171,7 +172,6 @@ if (!gotTheLock) {
 // ── App lifecycle ──────────────────────────────────────────────────────
 app.whenReady().then(() => {
   if (gotTheLock) {
-    app.setAppUserModelId('com.suratpharma.aegisrx');
     const db = initializeDatabase();
     seedUsers(db);
 

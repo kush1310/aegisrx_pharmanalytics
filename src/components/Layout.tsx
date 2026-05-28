@@ -16,7 +16,6 @@ import {
   IconChartBar,
   IconSearch,
   IconLoader2,
-  IconSelector,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
 import { useNavigationStore } from '../stores/navigationStore';
@@ -348,10 +347,10 @@ export default function Layout() {
                       Administrator
                     </span>
                   </div>
-                  {/* Sort/select icon — signals clickable action per UntitledUI */}
-                  <IconSelector
+                  {/* Logout icon */}
+                  <IconLogout
                     size={16}
-                    className="shrink-0 text-gray-400 group-hover:text-gray-600 transition-colors duration-150"
+                    className="shrink-0 text-gray-400 group-hover:text-red-500 transition-colors duration-150"
                     strokeWidth={1.75}
                   />
                 </>

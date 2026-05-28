@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Card,
   Text,
@@ -5,7 +6,8 @@ import {
   Stack,
   Button,
   Divider,
-  Badge
+  Badge,
+  Modal
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -17,16 +19,24 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import PageHeader from '@/components/PageHeader';
+import PageLoader from '@/components/PageLoader';
+
 
 export default function Settings() {
   const navigate = useNavigate();
   const { logout, username } = useAuthStore();
   const { reset: resetNavigation } = useNavigationStore();
+  
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = () => {
-    logout();
-    resetNavigation();
-    navigate('/login');
+    setIsLoggingOut(true);
+    setTimeout(() => {
+      logout();
+      resetNavigation();
+      navigate('/login');
+    }, 3000);
   };
 
   const handleClearCache = () => {
@@ -66,7 +76,7 @@ export default function Settings() {
             color="red"
             className="hover:bg-red-50 active:scale-95 transition-all w-fit border border-red-100"
             leftSection={<IconLogout size={18} />}
-            onClick={handleLogout}
+            onClick={() => setLogoutModalOpen(true)}
           >
             Logout
           </Button>
@@ -168,6 +178,71 @@ export default function Settings() {
           </Text>
         </Stack>
       </Card>
+
+      {/* ── Secure Logout Confirmation Modal ─────────────────────────── */}
+      <Modal
+        opened={logoutModalOpen}
+        onClose={() => setLogoutModalOpen(false)}
+        title={
+          <div className="flex items-center gap-2 text-gray-900 font-bold text-base">
+            <IconLogout size={18} className="text-red-500" />
+            <span>Confirm Secure Logout</span>
+          </div>
+        }
+        centered
+        size="md"
+        radius="md"
+        overlayProps={{ backgroundOpacity: 0.5, blur: 3, color: '#0f172a' }}
+        styles={{
+          content: { backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '20px' },
+          header:  { borderBottom: '1px solid #f3f4f6', paddingBottom: '12px', backgroundColor: '#ffffff' },
+        }}
+      >
+        <div className="flex flex-col gap-4 mt-2">
+          <Text size="sm" className="text-gray-600 leading-relaxed">
+            Are you sure you want to log out? You will need to sign in again to access the application.
+          </Text>
+
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+            <div className="shrink-0 text-amber-600 font-bold text-xs mt-0.5">NOTE:</div>
+            <Text size="xs" className="text-amber-800 leading-normal">
+              Any unsaved data or work in progress will be lost.
+            </Text>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="default"
+              onClick={() => setLogoutModalOpen(false)}
+              className="border border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold rounded-lg text-sm transition-all"
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={() => {
+                setLogoutModalOpen(false);
+                handleLogout();
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-sm transition-all"
+            >
+              Secure Logout
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Secure Logout Full-screen Overlay ───────────────────────── */}
+      {isLoggingOut && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-md transition-all duration-300">
+          <div className="flex flex-col items-center gap-6 p-8 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl max-w-sm text-center">
+            <PageLoader size={2.2} message="Ending Session" variant="dark" />
+            <Text className="text-slate-400 text-xs leading-relaxed font-medium">
+              Securing and closing your active session...
+            </Text>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

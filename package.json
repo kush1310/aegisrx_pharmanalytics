@@ -76,7 +76,7 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.bhaveshrafaliya.suratpharma",
+    "appId": "com.suratpharma.aegisrx",
     "productName": "AegisRx Analytics",
     "copyright": "Copyright © 2026 Bhavesh Rafaliya",
     "directories": {
