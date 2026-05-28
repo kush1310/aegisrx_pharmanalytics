@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { modals } from '@mantine/modals';
 import {
   Card, Text, Group, Button, Badge, Table, ScrollArea,
   Select, ActionIcon, Tooltip, Paper,
-  SimpleGrid, ThemeIcon
+  SimpleGrid, ThemeIcon, Progress
 } from '@mantine/core';
 import { TableRowSkeleton } from '../components/SkeletonLoaders';
 import PremiumSearchBar from '../components/PremiumSearchBar';
@@ -11,7 +11,8 @@ import { notifications } from '@mantine/notifications';
 import {
   IconLink, IconUnlink, IconStethoscope, IconPrescription,
   IconDownload, IconFilter, IconEdit,
-  IconCheck, IconX, IconSortAscending, IconSortDescending
+  IconCheck, IconX, IconSortAscending, IconSortDescending,
+  IconUpload, IconFileSpreadsheet, IconRefresh
 } from '@tabler/icons-react';
 import Fuse from 'fuse.js';
 import PageHeader from '@/components/PageHeader';
@@ -46,13 +47,18 @@ export default function DoctorPharmacyLinkage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>('pharmacyName');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Upload state for stocking pharmacies from a file
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'done' | 'error'>('idle');
+  const [uploadMessage, setUploadMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Inline editing state
   const [editingPharmacyId, setEditingPharmacyId] = useState<number | null>(null);
   const [editDoctorId, setEditDoctorId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const fetchLinkages = async () => {
+  const fetchLinkages = useCallback(async () => {
     try {
       const result = await api.get<{ linkages: LinkageRow[]; doctors: DoctorOption[] }>('/api/doctors/linkage');
       if (result.success && result.data) {
@@ -62,7 +68,109 @@ export default function DoctorPharmacyLinkage() {
     } catch (err) {
       console.error('Failed to fetch linkages:', err);
     }
-  };
+  }, []);
+
+  /**
+   * handleFileUpload
+   *
+   * Reads the selected file, sends it to /api/upload/upload, then polls
+   * /api/upload/status/:id every 2 s until the upload status becomes
+   * COMPLETED or ERROR. On completion, calls fetchLinkages() so any
+   * newly-parsed pharmacies appear in the table immediately.
+   *
+   * @param  {File} file - The file selected from the hidden input element.
+   * @validates          - File extension must be xlsx, xls, csv, or pdf.
+   *                       File size must be below 50 MB.
+   * @edge-cases         - Duplicate file hash returns 409; shown as a
+   *                       warning notification rather than a hard error.
+   */
+  const handleFileUpload = useCallback(async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['xlsx', 'xls', 'csv', 'pdf'].includes(ext || '')) {
+      notifications.show({ title: 'Invalid File Type', message: 'Please upload .xlsx, .xls, .csv, or .pdf', color: 'red' });
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      notifications.show({ title: 'File Too Large', message: 'Maximum file size is 50 MB', color: 'red' });
+      return;
+    }
+
+    setUploading(true);
+    setUploadStatus('uploading');
+    setUploadProgress(10);
+    setUploadMessage('Reading file...');
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const byteArray = Array.from(new Uint8Array(buffer));
+
+      setUploadProgress(30);
+      setUploadMessage('Uploading to server...');
+
+      const result = await api.post<{ uploadId: number; format: string }>('/api/upload/upload', {
+        buffer: byteArray,
+        fileName: file.name,
+      });
+
+      if (!result.success) {
+        if ((result as any).status === 409) {
+          notifications.show({ title: 'Already Uploaded', message: 'This file has already been processed.', color: 'yellow' });
+        } else {
+          throw new Error((result as any).error || 'Upload failed');
+        }
+        setUploadStatus('idle');
+        setUploading(false);
+        return;
+      }
+
+      const uploadId = (result.data as any).uploadId;
+      setUploadProgress(50);
+      setUploadStatus('processing');
+      setUploadMessage('Processing file — detecting pharmacies...');
+
+      // Poll status every 2 seconds until COMPLETED or ERROR (max 30 polls = 60 s)
+      let polls = 0;
+      const pollInterval = setInterval(async () => {
+        polls++;
+        if (polls > 30) {
+          clearInterval(pollInterval);
+          setUploadStatus('error');
+          setUploadMessage('Processing timed out. Try again.');
+          setUploading(false);
+          return;
+        }
+
+        try {
+          const statusResult = await api.get<{ status: string }>(`/api/upload/status/${uploadId}`);
+          const status = (statusResult.data as any)?.status || '';
+          setUploadProgress(Math.min(90, 50 + polls * 1.5));
+
+          if (status === 'COMPLETED') {
+            clearInterval(pollInterval);
+            setUploadProgress(100);
+            setUploadStatus('done');
+            setUploadMessage('Pharmacies loaded successfully.');
+            notifications.show({ title: 'Upload Complete', message: 'Pharmacy data has been imported.', color: 'green' });
+            await fetchLinkages();
+            setTimeout(() => { setUploadStatus('idle'); setUploading(false); setUploadProgress(0); }, 3000);
+          } else if (status?.startsWith('ERROR')) {
+            clearInterval(pollInterval);
+            setUploadStatus('error');
+            setUploadMessage(`Processing failed: ${status}`);
+            setUploading(false);
+          }
+        } catch {
+          // Ignore transient polling errors
+        }
+      }, 2000);
+
+    } catch (err: any) {
+      setUploadStatus('error');
+      setUploadMessage(err.message || 'Upload failed');
+      setUploading(false);
+      notifications.show({ title: 'Upload Error', message: err.message || 'Upload failed', color: 'red' });
+    }
+  }, [fetchLinkages]);
 
   useEffect(() => {
     setLoading(true);
@@ -266,8 +374,82 @@ export default function DoctorPharmacyLinkage() {
         }
       />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div>
+      {/* ── Stocking Pharmacies: Upload Panel ─────────────────── */}
+      <Card
+        radius="lg"
+        withBorder
+        p="md"
+        mt="lg"
+        style={{
+          border: uploadStatus === 'done' ? '1.5px solid #22c55e' :
+                  uploadStatus === 'error' ? '1.5px solid #ef4444' :
+                  '1.5px dashed #c7d2fe',
+          background: uploadStatus === 'done' ? '#f0fdf4' :
+                      uploadStatus === 'error' ? '#fef2f2' : '#fafafe',
+          transition: 'all 0.3s ease',
+        }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv,.pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); e.target.value = ''; }}
+        />
+        <Group justify="space-between" align="center">
+          <Group gap="sm">
+            <ThemeIcon variant="light" color="violet" size="lg" radius="md">
+              <IconFileSpreadsheet size={20} />
+            </ThemeIcon>
+            <div>
+              <Text fw={700} size="sm">Stock Pharmacies from File</Text>
+              <Text size="xs" c="dimmed">
+                {uploadStatus === 'idle' && 'Upload an Excel, CSV, or PDF to import pharmacy records into the linkage table.'}
+                {uploadStatus === 'uploading' && 'Uploading file to server...'}
+                {uploadStatus === 'processing' && uploadMessage}
+                {uploadStatus === 'done' && uploadMessage}
+                {uploadStatus === 'error' && uploadMessage}
+              </Text>
+            </div>
+          </Group>
+          <Group gap="xs">
+            {uploadStatus === 'done' && (
+              <Button
+                variant="light"
+                color="teal"
+                size="sm"
+                leftSection={<IconRefresh size={16} />}
+                onClick={fetchLinkages}
+              >
+                Refresh Table
+              </Button>
+            )}
+            <Button
+              variant="light"
+              color="violet"
+              size="sm"
+              leftSection={<IconUpload size={16} />}
+              onClick={() => fileInputRef.current?.click()}
+              loading={uploading}
+              disabled={uploading}
+            >
+              {uploading ? 'Processing...' : 'Upload File'}
+            </Button>
+          </Group>
+        </Group>
+        {uploading && (
+          <Progress
+            value={uploadProgress}
+            mt="sm"
+            size="sm"
+            radius="xl"
+            color={uploadStatus === 'error' ? 'red' : 'violet'}
+            animated={uploadStatus !== 'done'}
+          />
+        )}
+      </Card>
+
+      <div className="mt-6">
 
       {/* Summary Stats */}
       <SimpleGrid cols={{ base: 1, md: 3 }} mb="xl" mt="lg">
@@ -472,8 +654,6 @@ export default function DoctorPharmacyLinkage() {
           </Table>
         </ScrollArea>
       </Card>
-    </div>
-
     </div>
   </div>
   );

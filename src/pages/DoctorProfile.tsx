@@ -246,8 +246,11 @@ export default function DoctorProfile() {
 
   if (loading && !doctor) {
     return (
-      <div className={styles.container} style={{ marginTop: 24 }}>
-        <DoctorProfileSkeleton />
+      <div className={styles.container}>
+        <PageHeader title="Doctor Profile" showBack={true} />
+        <div className="mt-6">
+          <DoctorProfileSkeleton />
+        </div>
       </div>
     );
   }

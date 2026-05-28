@@ -6,6 +6,59 @@ import { getDb } from '../db/index';
 import { excelUploads, products, pharmacies, pharmacyProducts, salesTransactions, doctors } from '../db/schema';
 import { getUniqueHeaders, analyzeHeaders } from '../routes/excel';
 
+/**
+ * isPdfBuffer — checks first 4 bytes for the %PDF magic number.
+ * @param  {Buffer} buf - Raw file bytes stored in the DB.
+ * @returns {boolean}
+ */
+function isPdfBuffer(buf: Buffer): boolean {
+  return buf.length >= 4 && buf.slice(0, 4).toString('ascii') === '%PDF';
+}
+
+/**
+ * parsePdfToRowsBackground
+ *
+ * Async wrapper around pdf-parse for use inside the background worker.
+ * Extracts text from the PDF, splits it into lines, detects the delimiter
+ * (tab vs comma), treats the first line as headers, and converts subsequent
+ * lines into row objects.
+ *
+ * @param  {Buffer} buf      - PDF file buffer.
+ * @returns {Promise<any[]>} - Array of row objects; empty array on failure.
+ */
+async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
+  try {
+    const pdfParse = (await import('pdf-parse')).default;
+    const pdfData  = await pdfParse(buf);
+    const text     = pdfData.text || '';
+
+    const rawLines: string[] = text
+      .split('\n')
+      .map((l: string) => l.trim())
+      .filter((l: string) => l.length > 0);
+
+    if (rawLines.length < 2) return [];
+
+    const tabCount   = rawLines.filter((l: string) => l.includes('\t')).length;
+    const delimiter  = tabCount > rawLines.length / 2 ? '\t' : ',';
+    const headers    = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
+    if (headers.length === 0) return [];
+
+    const rows: any[] = [];
+    for (let i = 1; i < rawLines.length; i++) {
+      const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
+      if (cells.every((c: string) => c === '')) continue;
+      const row: Record<string, string> = {};
+      headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
+      rows.push(row);
+    }
+    return rows;
+  } catch (err) {
+    console.error('[UniversalProcessor] parsePdfToRowsBackground failed:', err);
+    return [];
+  }
+}
+
 export async function processUploadInBackground(uploadId: number) {
   // Use setImmediate to yield to event loop
   setImmediate(() => {
@@ -32,10 +85,25 @@ async function executeProcessing(uploadId: number) {
   const upload = db.select().from(excelUploads).where(eq(excelUploads.id, uploadId)).get();
   if (!upload) return;
 
-  const workbook = XLSX.read(upload.fileData, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  const rawData = XLSX.utils.sheet_to_json(sheetName ? workbook.Sheets[sheetName] : workbook.Sheets[0]) as any[];
-  
+  // Resolve raw row array — PDF path or Excel/CSV path
+  let rawData: any[] = [];
+
+  const fileBuffer = upload.fileData as Buffer;
+
+  if (isPdfBuffer(fileBuffer)) {
+    rawData = await parsePdfToRowsBackground(fileBuffer);
+  } else {
+    try {
+      const workbook  = XLSX.read(fileBuffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      rawData = XLSX.utils.sheet_to_json(
+        sheetName ? workbook.Sheets[sheetName] : workbook.Sheets[0]
+      ) as any[];
+    } catch (xlsxErr) {
+      console.error('[UniversalProcessor] XLSX.read failed:', xlsxErr);
+    }
+  }
+
   if (!rawData.length) {
     db.update(excelUploads).set({ status: 'ERROR_EMPTY' }).where(eq(excelUploads.id, uploadId)).run();
     return;
