@@ -115,17 +115,26 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
     if (opened) {
       if (editData) {
         setFormData({
-          name: editData.name,
-          contact: editData.contact,
-          address: editData.address,
+          name: editData.name || '',
+          contact: editData.contact || '',
+          address: editData.address || '',
           birthDate: editData.birthDate ? new Date(editData.birthDate) : null,
-          isMarried: editData.isMarried,
+          isMarried: editData.isMarried || false,
           spouseName: editData.spouseName || '',
           anniversary: editData.anniversary ? new Date(editData.anniversary) : null,
-          childrenCount: editData.childrenCount,
-          childrenNames: editData.childrenNames ? JSON.parse(editData.childrenNames) : [],
-          qualification: editData.qualification,
-          specialization: editData.specialization,
+          childrenCount: editData.childrenCount || 0,
+          childrenNames: (() => {
+            if (!editData.childrenNames) return [];
+            if (Array.isArray(editData.childrenNames)) return editData.childrenNames;
+            try {
+              const parsed = JSON.parse(editData.childrenNames);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [editData.childrenNames];
+            }
+          })(),
+          qualification: editData.qualification || '',
+          specialization: editData.specialization || '',
           registrationNo: editData.registrationNo || '',
           email: editData.email || '',
           experienceYrs: editData.experienceYrs || 0

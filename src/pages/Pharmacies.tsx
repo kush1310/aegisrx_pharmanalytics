@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { modals } from '@mantine/modals';
-import PageLoader from '@/components/PageLoader';
 import { PharmacyCardSkeletonGrid } from '@/components/SkeletonLoaders';
 import PageSearchBar from '@/components/PageSearchBar';
 import type { SearchSuggestion } from '@/components/PageSearchBar';
@@ -62,7 +61,7 @@ type SortDir = 'asc' | 'desc';
 
 export default function Pharmacies() {
   const navigate = useNavigate();
-  const { pharmacies, fetchPharmacies, fetchStats, isLoadingPharmacies, hasLoadedPharmacies } = useAppStore();
+  const { pharmacies, fetchPharmacies, fetchStats, isLoadingPharmacies } = useAppStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPharmacy, setEditingPharmacy] = useState<Pharmacy | null>(null);
   const [formData, setFormData] = useState<PharmacyFormData>(initialFormData);
@@ -74,10 +73,10 @@ export default function Pharmacies() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   /**
-   * isInitialLoading — true only on the first page mount fetch.
-   * Shows the branded PageLoader overlay with a 3-second minimum.
+   * isInitialLoading — true on page mount.
+   * Enforces a static 2.5-second skeleton loading.
    */
-  const [isInitialLoading, setIsInitialLoading] = useState(!hasLoadedPharmacies);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   /**
    * isSubsequentLoading — true during search/sort re-filters after initial load.
@@ -85,38 +84,20 @@ export default function Pharmacies() {
    */
   const [isSubsequentLoading, setIsSubsequentLoading] = useState(false);
 
-  /**
-   * isFirstLoadRef — flipped to false once the first fetch resolves.
-   * Guards against applying the 3-second timer to subsequent fetches.
-   */
-  const isFirstLoadRef = useRef<boolean>(!hasLoadedPharmacies);
-
   useEffect(() => {
-    if (!hasLoadedPharmacies) {
-      const startTime = Date.now();
-      fetchPharmacies().then(() => {
-        const elapsed = Date.now() - startTime;
-        const remaining = Math.max(0, 3000 - elapsed);
-        setTimeout(() => {
-          setIsInitialLoading(false);
-          isFirstLoadRef.current = false;
-        }, remaining);
-      });
-    } else {
+    fetchPharmacies();
+    const timer = setTimeout(() => {
       setIsInitialLoading(false);
-      isFirstLoadRef.current = false;
-      fetchPharmacies();
-    }
-  }, [fetchPharmacies, hasLoadedPharmacies]);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [fetchPharmacies]);
 
   // When the user types in the search box, show inline skeleton immediately
   const handleSearchChange = (value: string) => {
     setLocalSearch(value);
-    if (!isFirstLoadRef.current) {
-      setIsSubsequentLoading(true);
-      // Client-side filter is synchronous; dismiss skeleton after one frame
-      requestAnimationFrame(() => setIsSubsequentLoading(false));
-    }
+    setIsSubsequentLoading(true);
+    // Client-side filter is synchronous; dismiss skeleton after one frame
+    requestAnimationFrame(() => setIsSubsequentLoading(false));
   };
 
   // Fuzzy search
@@ -355,14 +336,7 @@ export default function Pharmacies() {
       />
 
       <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        {/* Initial load overlay: PageLoader centered above blurred content */}
-        {isInitialLoading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-            <PageLoader message="Loading pharmacies directory..." />
-          </div>
-        )}
-
-        <div className={isInitialLoading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+        <div>
 
       {/* Search + Sort Bar */}
       <Group gap="sm" mt="lg" mb="lg" align="flex-end">
@@ -410,8 +384,8 @@ export default function Pharmacies() {
         </Menu>
       </Group>
 
-      {/* Subsequent load: skeleton inline, no blur */}
-      {(isSubsequentLoading || (isLoadingPharmacies && !isInitialLoading)) ? (
+      {/* Initial load or subsequent load: skeleton inline, no blur */}
+      {(isInitialLoading || isSubsequentLoading || isLoadingPharmacies) ? (
         <PharmacyCardSkeletonGrid count={6} />
       ) : filteredPharmacies.length === 0 ? (
         <Card shadow="sm" radius="lg" p="xl" className={styles.emptyState}>

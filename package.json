@@ -87,6 +87,9 @@
       "dist/**/*",
       "dist-electron/**/*",
       "data/**/*",
+      "!data/**/*.db-shm",
+      "!data/**/*.db-wal",
+      "!data/**/*.db-journal",
       "python/**/*"
     ],
     "extraResources": [

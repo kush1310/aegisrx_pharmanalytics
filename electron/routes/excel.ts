@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq, desc, inArray, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import * as XLSX from 'xlsx';
+import { BrowserWindow } from 'electron';
 import { getDb } from '../db/index';
 import { excelUploads, doctors, pharmacies, products, pharmacyProducts, salesTransactions } from '../db/schema';
 
@@ -672,6 +673,62 @@ excelRouter.get('/:id/download', async (c) => {
     return c.json({ success: true, data: { buffer: Array.from(upload.fileData as Buffer), fileName: upload.fileName } });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to download file' }, 500);
+  }
+});
+
+// ── POST /api/excel/print-pdf ─────────────────────────────────────────
+excelRouter.post('/print-pdf', async (c) => {
+  try {
+    const { html, filename } = await c.req.json();
+    if (!html) {
+      return c.json({ success: false, error: 'HTML is required' }, 400);
+    }
+
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      // Create a headless offscreen window
+      const win = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          offscreen: true,
+          sandbox: false
+        }
+      });
+
+      // Load HTML string
+      win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+      win.webContents.once('did-finish-load', async () => {
+        try {
+          const data = await win.webContents.printToPDF({
+            printBackground: true,
+            margins: {
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0
+            },
+            pageSize: 'A4'
+          });
+          win.close();
+          resolve(Buffer.from(data));
+        } catch (err) {
+          win.close();
+          reject(err);
+        }
+      });
+
+      win.webContents.once('did-fail-load', () => {
+        win.close();
+        reject(new Error('Failed to load HTML content for PDF generation'));
+      });
+    });
+
+    c.header('Content-Type', 'application/pdf');
+    c.header('Content-Disposition', `attachment; filename="${filename || 'report.pdf'}"`);
+    return c.body(pdfBuffer as any);
+  } catch (err: any) {
+    console.error('[PDF Export Route Error]', err);
+    return c.json({ success: false, error: err.message || 'Failed to print PDF' }, 500);
   }
 });
 

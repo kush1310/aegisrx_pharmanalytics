@@ -5,7 +5,7 @@ import {
   Select, ActionIcon, Tooltip, Paper,
   SimpleGrid, ThemeIcon
 } from '@mantine/core';
-import PageLoader from '../components/PageLoader';
+import { TableRowSkeleton } from '../components/SkeletonLoaders';
 import PremiumSearchBar from '../components/PremiumSearchBar';
 import { notifications } from '@mantine/notifications';
 import {
@@ -53,8 +53,6 @@ export default function DoctorPharmacyLinkage() {
   const [saving, setSaving] = useState(false);
 
   const fetchLinkages = async () => {
-    setLoading(true);
-    const startTime = Date.now();
     try {
       const result = await api.get<{ linkages: LinkageRow[]; doctors: DoctorOption[] }>('/api/doctors/linkage');
       if (result.success && result.data) {
@@ -63,17 +61,16 @@ export default function DoctorPharmacyLinkage() {
       }
     } catch (err) {
       console.error('Failed to fetch linkages:', err);
-    } finally {
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 3000 - elapsed);
-      setTimeout(() => {
-        setLoading(false);
-      }, remaining);
     }
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchLinkages();
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Fuzzy search
@@ -270,7 +267,7 @@ export default function DoctorPharmacyLinkage() {
       />
 
       <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div className={loading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+        <div>
 
       {/* Summary Stats */}
       <SimpleGrid cols={{ base: 1, md: 3 }} mb="xl" mt="lg">
@@ -358,7 +355,11 @@ export default function DoctorPharmacyLinkage() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {processedData.length === 0 ? (
+              {loading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <TableRowSkeleton key={i} columnCount={6} rowIndex={i} />
+                ))
+              ) : processedData.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={6}>
                     <Text ta="center" py="xl" c="dimmed">No linkages found</Text>
@@ -473,11 +474,6 @@ export default function DoctorPharmacyLinkage() {
       </Card>
     </div>
 
-    {loading && (
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-        <PageLoader message="Retrieving pharmacy linkage mappings..." />
-      </div>
-    )}
     </div>
   </div>
   );

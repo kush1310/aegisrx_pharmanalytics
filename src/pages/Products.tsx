@@ -29,7 +29,6 @@ import {
   Loader,
   Anchor
 } from '@mantine/core';
-import PageLoader from '../components/PageLoader';
 import { ProductCardSkeletonGrid } from '../components/SkeletonLoaders';
 import PageSearchBar from '../components/PageSearchBar';
 import type { SearchSuggestion } from '../components/PageSearchBar';
@@ -64,7 +63,6 @@ export default function Products() {
     productPage,
     productTotalPages,
     isLoadingProducts,
-    hasLoadedProducts,
   } = useAppStore();
 
   const navigate = useNavigate();
@@ -105,32 +103,18 @@ export default function Products() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   /**
-   * isInitialLoading — true only on first page mount.
-   * Triggers the branded PageLoader overlay with a 3-second minimum.
+   * isInitialLoading — true on page mount.
+   * Enforces a static 2.5-second skeleton loading.
    */
-  const [isInitialLoading, setIsInitialLoading] = useState(!hasLoadedProducts);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-
-  /**
-   * isFirstLoadRef — false after the first successful fetch completes.
-   * Prevents the 3-second timer from being applied to subsequent fetches.
-   */
-  const isFirstLoadRef = useRef<boolean>(!hasLoadedProducts);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [searchParams] = useSearchParams();
 
   /**
-   * loadProductsData — unified fetch helper that routes to the correct loading state:
-   *   - First call: sets isInitialLoading, enforces 3-second minimum, then clears.
-   *   - Subsequent calls: sets isSubsequentLoading, clears immediately after fetch.
-   *
-   * @param page   - 1-indexed page number
-   * @param size   - Items per page
-   * @param search - Search query string
-   * @param field  - Sort field key
-   * @param dir    - Sort direction
+   * loadProductsData — unified fetch helper that triggers fetches and manages skeletons.
    */
   const loadProductsData = useCallback(async (
     page: number,
@@ -139,22 +123,15 @@ export default function Products() {
     field: typeof sortField,
     dir: typeof sortDir
   ) => {
-    if (isFirstLoadRef.current) {
-      // Initial mount: show PageLoader with 3-second minimum
-      setIsInitialLoading(true);
-      const startTime = Date.now();
-      await fetchProducts(page, size, search, field, dir);
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 3000 - elapsed);
-      setTimeout(() => {
-        setIsInitialLoading(false);
-        isFirstLoadRef.current = false;
-      }, remaining);
-    } else {
-      // Subsequent fetch: show skeleton, no artificial delay
-      await fetchProducts(page, size, search, field, dir);
-    }
+    await fetchProducts(page, size, search, field, dir);
   }, [fetchProducts]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   /**
    * Fetch matching products from the database for the PageSearchBar dropdown.
@@ -396,15 +373,7 @@ export default function Products() {
       />
 
       <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        {/* Initial mount overlay: PageLoader centered over blurred content */}
-        {isInitialLoading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-            <PageLoader message="Loading products catalog..." />
-          </div>
-        )}
-
-        {/* Content wrapper: blurred during initial load only */}
-        <div className={isInitialLoading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+        <div>
 
       {/* Server-side search & Sort */}
       <Group gap="sm" mb="lg" align="flex-end">
@@ -453,8 +422,8 @@ export default function Products() {
         </Menu>
       </Group>
 
-      {/* Subsequent load: skeleton grid replaces cards inline — no blur, no overlay */}
-      {(isLoadingProducts && !isInitialLoading) ? (
+      {/* Initial load or subsequent load: skeleton inline, no blur */}
+      {(isInitialLoading || isLoadingProducts) ? (
         <ProductCardSkeletonGrid count={12} />
       ) : products.length === 0 ? (
         <Card shadow="sm" radius="lg" p="xl" className={styles.emptyState}>
