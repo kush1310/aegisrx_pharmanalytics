@@ -5,8 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { initDb } from './db/index';
 import { startServer } from './server';
-import { users, doctors } from './db/schema';
-import { eq, ne } from 'drizzle-orm';
+import { users } from './db/schema';
 import { checkEventsLogic } from './routes/notifications';
 
 // Save original log to print "application started" at the end of initialization
@@ -61,8 +60,22 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
 // Explicitly set userData path to a sub-folder to avoid root permission conflicts
-app.setPath('userData', path.join(app.getPath('appData'), 'surat-pharma-v2'));
-app.setAppUserModelId('com.suratpharma.aegisrx');
+app.setPath('userData', path.join(app.getPath('appData'), 'aegisrx-v1'));
+app.setAppUserModelId('com.aegisrx.analytics');
+
+// ── Native module path fix for packaged builds ─────────────────────────
+// better-sqlite3 contains a native .node binary that cannot be executed
+// from inside an asar archive. electron-builder's asarUnpack copies it to
+// app.asar.unpacked/. This patch rewrites the require path so Node finds
+// the unpacked binary at runtime in both dev and production modes.
+if (app.isPackaged) {
+  const asarUnpackedBase = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+  // Prepend to NODE_PATH so native requires resolve to the unpacked location
+  process.env.NODE_PATH = [
+    asarUnpackedBase,
+    process.env.NODE_PATH || ''
+  ].filter(Boolean).join(path.delimiter);
+}
 
 // ── Database init ──────────────────────────────────────────────────────
 function initializeDatabase() {
@@ -81,7 +94,7 @@ function initializeDatabase() {
   return db;
 }
 
-// ── Seed default users ─────────────────────────────────────────────────
+// ── Seed default admin user ────────────────────────────────────────────
 function seedUsers(db: ReturnType<typeof initDb>) {
   try {
     const hashPassword = (pw: string) =>
@@ -91,22 +104,15 @@ function seedUsers(db: ReturnType<typeof initDb>) {
     if (existing.length === 0) {
       db.insert(users).values([
         {
-          username: 'bhavesh@gmail.com',
-          prefix: 'Mr.',
-          firstName: 'Bhavesh',
-          lastName: 'Rafaliya',
-          email: 'bhavesh@gmail.com',
-          passwordHash: hashPassword('kush1111'),
+          username: 'admin@aegisrx.com',
+          prefix:    'Mr.',
+          firstName: 'Admin',
+          lastName:  'User',
+          email:     'admin@aegisrx.com',
+          passwordHash: hashPassword('Admin@1234'),
           role: 'ADMIN'
         }
       ]).run();
-      console.log('[DB] Default user bhavesh@gmail.com seeded.');
-    } else {
-      // Ensure existing Bhavesh account has username set to email as well
-      db.update(users)
-        .set({ username: 'bhavesh@gmail.com' })
-        .where(eq(users.email, 'bhavesh@gmail.com'))
-        .run();
     }
   } catch (err) {
     console.error('[DB] Seed error (users):', err);

@@ -1,15 +1,17 @@
 {
   "name": "aegisrx-analytics",
   "version": "1.0.0",
-  "description": "Pharmaceutical Analytics Desktop Application for Bhavesh Rafaliya",
+  "description": "AegisRx — Pharmaceutical Analytics Desktop Application",
   "main": "dist-electron/main.js",
-  "author": "Bhavesh Rafaliya",
+  "author": "AegisRx Analytics",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
     "preview": "vite preview",
     "electron:dev": "vite --logLevel silent",
     "electron:build": "npm run build",
@@ -53,6 +55,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/file-saver": "^2.0.7",
     "@types/node": "^22.19.10",
@@ -77,41 +80,34 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.suratpharma.aegisrx",
+    "appId": "com.aegisrx.analytics",
     "productName": "AegisRx Analytics",
-    "copyright": "Copyright © 2026 Bhavesh Rafaliya",
+    "copyright": "Copyright © 2026 AegisRx Analytics",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/pdf-parse/**/*",
+      "node_modules/bindings/**/*"
+    ],
+    "electronVersion": "40.10.0",
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
-      "data/**/*",
-      "!data/**/*.db-shm",
-      "!data/**/*.db-wal",
-      "!data/**/*.db-journal",
-      "python/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "python",
-        "to": "python",
-        "filter": [
-          "**/*"
-        ]
-      }
+      "dist-electron/**/*"
     ],
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         },
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -120,15 +116,17 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "portable": {
-      "artifactName": "SuratPharma-Portable-${version}.exe"
+      "artifactName": "AegisRx-Portable-${version}.exe"
     }
   }
 }

@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
-import crypto from 'crypto';
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _sqlite: Database.Database | null = null;
@@ -70,24 +69,6 @@ export function initDb(dbPath: string) {
       _sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique_idx ON User(email)");
     }
 
-    // Ensure default admin user email is bhavesh@gmail.com and password is hash of kush1111
-    const hashPassword = (pw: string) =>
-      crypto.pbkdf2Sync(pw, 'suratpharma_salt_2026', 1000, 64, 'sha512').toString('hex');
-    const hashed = hashPassword('kush1111');
-
-    // Update existing bhaveshrafaliya@aegisrx.com to bhavesh@gmail.com
-    _sqlite.prepare(`
-      UPDATE User 
-      SET email = 'bhavesh@gmail.com', passwordHash = ?, firstName = 'Bhavesh', lastName = 'Rafaliya'
-      WHERE email = 'bhaveshrafaliya@aegisrx.com'
-    `).run(hashed);
-
-    // Also ensure any existing bhavesh@gmail.com user gets password kush1111
-    _sqlite.prepare(`
-      UPDATE User 
-      SET passwordHash = ?
-      WHERE email = 'bhavesh@gmail.com'
-    `).run(hashed);
   } catch (err: any) {
     console.error('[DB] User migration error:', err.message);
   }
