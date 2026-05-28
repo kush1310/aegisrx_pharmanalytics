@@ -1,0 +1,556 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  Button, 
+  Card, 
+  Text, 
+  Group, 
+  ActionIcon,
+  SimpleGrid,
+  Stack,
+  Skeleton,
+  Menu,
+  Modal,
+  TextInput,
+  Textarea
+} from '@mantine/core';
+import { DateInput } from '@mantine/dates';
+import { notifications } from '@mantine/notifications';
+import { 
+  IconPlus, 
+  IconPill,
+  IconPhone,
+  IconMapPin,
+  IconEdit,
+  IconTrash,
+  IconDotsVertical,
+  IconUser,
+  IconLicense,
+  IconDownload,
+  IconSearch,
+  IconSortAscending,
+  IconSortDescending
+} from '@tabler/icons-react';
+import { motion } from 'framer-motion';
+import Fuse from 'fuse.js';
+import { useAppStore } from '@/stores/appStore';
+import type { Pharmacy, PharmacyFormData } from '@/types';
+import { exportPharmacyListPDF } from '@/utils/export';
+import PageHeader from '@/components/PageHeader';
+import { api } from '@/lib/api';
+import styles from './Pharmacies.module.css';
+
+// Type assertion to fix framer-motion + Mantine polymorphic component issue
+const MotionCard = motion.create ? motion.create(Card as any) : motion(Card as any);
+
+const initialFormData: PharmacyFormData = {
+  name: '',
+  ownerName: '',
+  licenseId: '',
+  gstNumber: '',
+  drugLicense: '',
+  address: '',
+  contact: '',
+  ownerBirthDate: null
+};
+
+type SortField = 'name' | 'ownerName' | 'createdAt';
+type SortDir = 'asc' | 'desc';
+
+export default function Pharmacies() {
+  const navigate = useNavigate();
+  const { pharmacies, isLoadingPharmacies, fetchPharmacies, fetchStats } = useAppStore();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingPharmacy, setEditingPharmacy] = useState<Pharmacy | null>(null);
+  const [formData, setFormData] = useState<PharmacyFormData>(initialFormData);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  
+  const [localSearch, setLocalSearch] = useState('');
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  useEffect(() => {
+    fetchPharmacies();
+  }, [fetchPharmacies]);
+
+  // Fuzzy search
+  const fuse = useMemo(() => {
+    return new Fuse(pharmacies, {
+      keys: ['name', 'ownerName', 'address', 'licenseId'],
+      threshold: 0.3,
+      includeScore: true
+    });
+  }, [pharmacies]);
+
+  // Search and Sort
+  const filteredPharmacies = useMemo(() => {
+    let results = !localSearch.trim() 
+      ? [...pharmacies] 
+      : fuse.search(localSearch).map(r => r.item);
+
+    results.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'name':
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case 'ownerName':
+          cmp = (a.ownerName || '').localeCompare(b.ownerName || '');
+          break;
+        case 'createdAt':
+          cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+          break;
+      }
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+
+    return results;
+  }, [pharmacies, localSearch, fuse, sortField, sortDir]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const openModal = (pharmacy?: Pharmacy) => {
+    if (pharmacy) {
+      setEditingPharmacy(pharmacy);
+      setFormData({
+        name: pharmacy.name,
+        ownerName: pharmacy.ownerName,
+        licenseId: pharmacy.licenseId,
+        gstNumber: pharmacy.gstNumber || '',
+        drugLicense: pharmacy.drugLicense || '',
+        address: pharmacy.address,
+        contact: pharmacy.contact,
+        ownerBirthDate: pharmacy.ownerBirthDate ? new Date(pharmacy.ownerBirthDate) : null
+      });
+    } else {
+      setEditingPharmacy(null);
+      setFormData(initialFormData);
+    }
+    setErrors({});
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingPharmacy(null);
+    setFormData(initialFormData);
+    setErrors({});
+  };
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    
+    // Name validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    } else if (!/^[a-zA-Z\s.]+$/.test(formData.name)) {
+      newErrors.name = 'Name should only contain letters and spaces';
+    }
+
+    // Owner Name validation
+    if (!formData.ownerName.trim()) {
+      newErrors.ownerName = 'Owner name is required';
+    } else if (!/^[a-zA-Z\s.]+$/.test(formData.ownerName)) {
+      newErrors.ownerName = 'Owner name should only contain letters and spaces';
+    }
+
+    if (!formData.licenseId.trim()) newErrors.licenseId = 'License ID is required';
+    if (!formData.address.trim()) newErrors.address = 'Address is required';
+    
+    // Contact validation
+    const cleanContact = formData.contact.replace(/\s/g, '');
+    if (!cleanContact) {
+      newErrors.contact = 'Contact is required';
+    } else if (!/^(?:\+91|91)?[4-9]\d{9}$/.test(cleanContact)) {
+      newErrors.contact = 'Must be a valid Indian mobile number (+91 XXXXXXXXXX)';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validate()) return;
+    
+    setSaving(true);
+    try {
+      const payload = {
+        name: formData.name,
+        ownerName: formData.ownerName,
+        licenseId: formData.licenseId,
+        gstNumber: formData.gstNumber || null,
+        drugLicense: formData.drugLicense || null,
+        address: formData.address,
+        contact: formData.contact,
+        ownerBirthDate: formData.ownerBirthDate 
+          ? (typeof formData.ownerBirthDate === 'string' ? new Date(formData.ownerBirthDate).toISOString() : (formData.ownerBirthDate as Date).toISOString())
+          : null
+      };
+
+      let result;
+      if (editingPharmacy) {
+        result = await api.put(`/api/pharmacies/${editingPharmacy.id}`, payload);
+      } else {
+        result = await api.post('/api/pharmacies', payload);
+      }
+
+      if (result.success) {
+        notifications.show({
+          title: editingPharmacy ? 'Pharmacy Updated' : 'Pharmacy Added',
+          message: `${formData.name} has been ${editingPharmacy ? 'updated' : 'added'}`,
+          color: 'green'
+        });
+        closeModal();
+        fetchPharmacies();
+        fetchStats();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to save pharmacy.',
+        color: 'red'
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
+    
+    try {
+      const result = await api.delete(`/api/pharmacies/${id}`);
+      if (result.success) {
+        notifications.show({
+          title: 'Pharmacy Deleted',
+          message: `${name} has been removed`,
+          color: 'green'
+        });
+        fetchPharmacies();
+        fetchStats();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to delete pharmacy',
+        color: 'red'
+      });
+    }
+  };
+
+  return (
+    <div className={styles.container}>
+      {/* Header */}
+      <PageHeader 
+        title="Pharmacies Directory"
+        subtitle={`${filteredPharmacies.length} pharmacy store${filteredPharmacies.length !== 1 ? 's' : ''} found`}
+        onRefresh={fetchPharmacies}
+        refreshing={isLoadingPharmacies}
+        action={
+          <Group>
+            <Button
+              variant="light"
+              color="indigo"
+              leftSection={<IconDownload size={18} />}
+              onClick={() => {
+                const exportData = filteredPharmacies.map(ph => ({
+                  name: ph.name,
+                  ownerName: ph.ownerName || 'Unknown',
+                  licenseId: ph.licenseId || '-',
+                  contact: ph.contact || '-',
+                  productCount: (ph as any).products?.length || 0
+                }));
+                exportPharmacyListPDF(exportData);
+              }}
+            >
+              Export PDF
+            </Button>
+            <Button 
+              leftSection={<IconPlus size={18} />}
+              color="green"
+              onClick={() => openModal()}
+            >
+              Add Pharmacy
+            </Button>
+          </Group>
+        }
+      />
+
+      {/* Search + Sort Bar */}
+      <Group gap="sm" mt="lg" mb="lg" align="flex-end">
+        <TextInput
+          placeholder="Search pharmacies..."
+          leftSection={<IconSearch size={18} />}
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.currentTarget.value)}
+          size="md"
+          style={{ flex: 1 }}
+          className={styles.searchBar}
+        />
+        <Menu shadow="md" position="bottom-end" width={200}>
+          <Menu.Target>
+            <Button
+              variant="light"
+              color="gray"
+              leftSection={sortDir === 'asc' ? <IconSortAscending size={18} /> : <IconSortDescending size={18} />}
+              size="md"
+            >
+              Sort
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>Sort By</Menu.Label>
+            <Menu.Item 
+              onClick={() => toggleSort('name')}
+              rightSection={sortField === 'name' ? (sortDir === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />) : null}
+            >
+              Pharmacy Name
+            </Menu.Item>
+            <Menu.Item 
+              onClick={() => toggleSort('ownerName')}
+              rightSection={sortField === 'ownerName' ? (sortDir === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />) : null}
+            >
+              Owner Name
+            </Menu.Item>
+            <Menu.Item 
+              onClick={() => toggleSort('createdAt')}
+              rightSection={sortField === 'createdAt' ? (sortDir === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />) : null}
+            >
+              Date Added
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
+
+      {/* Grid */}
+      {isLoadingPharmacies ? (
+        <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="md">
+          {[...Array(6)].map((_, i) => (
+            <Card key={i} shadow="sm" radius="lg" p="lg">
+              <Stack gap="sm">
+                <Group>
+                  <Skeleton height={56} width={56} radius="md" />
+                  <div style={{ flex: 1 }}>
+                    <Skeleton height={20} width="60%" mb={8} />
+                    <Skeleton height={14} width="40%" />
+                  </div>
+                </Group>
+              </Stack>
+            </Card>
+          ))}
+        </SimpleGrid>
+      ) : filteredPharmacies.length === 0 ? (
+        <Card shadow="sm" radius="lg" p="xl" className={styles.emptyState}>
+          <Stack align="center" gap="md">
+            <IconPill size={64} stroke={1} color="var(--color-text-muted)" />
+            <Text size="lg" fw={800}>No pharmacy stores found</Text>
+            <Text c="dimmed" size="sm">
+              {localSearch ? 'Try a different search' : 'Add your first pharmacy'}
+            </Text>
+            {!localSearch && (
+              <Button 
+                leftSection={<IconPlus size={18} />}
+                color="green"
+                onClick={() => openModal()}
+                mt="sm"
+              >
+                Add Pharmacy
+              </Button>
+            )}
+          </Stack>
+        </Card>
+      ) : (
+        <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="md">
+          {filteredPharmacies.map((pharmacy, index) => (
+            <MotionCard
+              key={pharmacy.id}
+              shadow="sm"
+              radius="lg"
+              className={styles.pharmacyCard}
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              whileHover={{ 
+                scale: 1.03, 
+                rotateY: 2, 
+                rotateX: 2, 
+                boxShadow: "0px 10px 30px rgba(0, 0, 0, 0.15)"
+              }}
+              transition={{ 
+                delay: index * 0.05,
+                type: 'spring',
+                stiffness: 400,
+                damping: 25
+              }}
+            >
+              <div 
+                className={styles.cardContent}
+                onClick={() => navigate(`/pharmacies/${pharmacy.id}`)}
+              >
+                <Group wrap="nowrap" gap="md">
+                  <div className={styles.avatar}>
+                    <IconPill size={28} />
+                  </div>
+                  <div className={styles.info}>
+                    <Text fw={800} size="md" lineClamp={1}>
+                      {pharmacy.name}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      <IconUser size={12} style={{ marginRight: 4 }} />
+                      {pharmacy.ownerName}
+                    </Text>
+                  </div>
+                </Group>
+
+                <Stack gap="xs" mt="md">
+                  <Group gap="xs">
+                    <IconPhone size={14} color="var(--color-text-muted)" />
+                    <Text size="sm" c="dimmed">{pharmacy.contact}</Text>
+                  </Group>
+                  <Group gap="xs">
+                    <IconMapPin size={14} color="var(--color-text-muted)" />
+                    <Text size="sm" c="dimmed" lineClamp={1}>{pharmacy.address}</Text>
+                  </Group>
+                  <Group gap="xs">
+                    <IconLicense size={14} color="var(--color-text-muted)" />
+                    <Text size="sm" c="dimmed">{pharmacy.licenseId}</Text>
+                  </Group>
+                </Stack>
+              </div>
+
+
+              <Group justify="flex-end" align="center" mt="md" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+                <Menu position="bottom-end" withinPortal>
+                  <Menu.Target>
+                    <ActionIcon 
+                      variant="subtle" 
+                      color="gray"
+                    >
+                      <IconDotsVertical size={18} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item 
+                      leftSection={<IconEdit size={16} />}
+                      onClick={() => openModal(pharmacy)}
+                    >
+                      Edit
+                    </Menu.Item>
+                    <Menu.Item 
+                      leftSection={<IconTrash size={16} />}
+                      color="red"
+                      onClick={() => handleDelete(pharmacy.id, pharmacy.name)}
+                    >
+                      Delete
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              </Group>
+            </MotionCard>
+          ))}
+        </SimpleGrid>
+      )}
+
+      {/* Add/Edit Modal */}
+      <Modal
+        opened={modalOpen}
+        onClose={closeModal}
+        title={editingPharmacy ? 'Edit Pharmacy' : 'Add New Pharmacy Store'}
+        size="lg"
+        centered
+      >
+        <Stack gap="md">
+          <SimpleGrid cols={2}>
+            <TextInput
+              label="Pharmacy Name"
+              placeholder="Enter name"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.currentTarget.value })}
+              error={errors.name}
+            />
+            <TextInput
+              label="Owner Name"
+              placeholder="Owner's full name"
+              required
+              value={formData.ownerName}
+              onChange={(e) => setFormData({ ...formData, ownerName: e.currentTarget.value })}
+              error={errors.ownerName}
+            />
+          </SimpleGrid>
+          
+          <TextInput
+            label="License ID"
+            placeholder="Unique license number"
+            required
+            value={formData.licenseId}
+            onChange={(e) => setFormData({ ...formData, licenseId: e.currentTarget.value })}
+            error={errors.licenseId}
+          />
+
+          <SimpleGrid cols={2}>
+            <TextInput
+              label="GST Number"
+              placeholder="GST number (optional)"
+              value={formData.gstNumber}
+              onChange={(e) => setFormData({ ...formData, gstNumber: e.currentTarget.value })}
+            />
+            <TextInput
+              label="Drug License"
+              placeholder="Drug license (optional)"
+              value={formData.drugLicense}
+              onChange={(e) => setFormData({ ...formData, drugLicense: e.currentTarget.value })}
+            />
+          </SimpleGrid>
+
+          <Textarea
+            label="Address"
+            placeholder="Full address"
+            required
+            rows={2}
+            value={formData.address}
+            onChange={(e) => setFormData({ ...formData, address: e.currentTarget.value })}
+            error={errors.address}
+          />
+
+          <SimpleGrid cols={2}>
+            <TextInput
+              label="Contact Number"
+              placeholder="+91 98765 43210"
+              required
+              value={formData.contact}
+              onChange={(e) => setFormData({ ...formData, contact: e.currentTarget.value })}
+              error={errors.contact}
+            />
+            <DateInput
+              label="Owner's Birthday"
+              placeholder="Select date"
+              value={formData.ownerBirthDate}
+              onChange={(date) => setFormData({ ...formData, ownerBirthDate: date as Date | null })}
+              maxDate={new Date()}
+              clearable
+            />
+          </SimpleGrid>
+
+          <Group justify="flex-end" mt="md">
+            <Button variant="default" onClick={closeModal}>Cancel</Button>
+            <Button onClick={handleSave} loading={saving} color="green">
+              {editingPharmacy ? 'Update Pharmacy' : 'Add Pharmacy'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </div>
+  );
+}

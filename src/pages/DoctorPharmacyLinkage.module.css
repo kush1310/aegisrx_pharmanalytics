@@ -1,0 +1,36 @@
+.container {
+  padding: 1.5rem;
+  max-width: 100%;
+}
+
+.statCard {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.tableCard {
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.tableHeader {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.tableHeader th {
+  font-weight: 700 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  user-select: none;
+}
+
+.tableHeader th:hover {
+  background: #e2e8f0;
+}
