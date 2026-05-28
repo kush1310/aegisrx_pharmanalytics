@@ -1,0 +1,11 @@
+.stepper {
+  padding: var(--spacing-md) 0;
+}
+
+.stepper :global(.mantine-Stepper-stepLabel) {
+  font-weight: 500;
+}
+
+.stepper :global(.mantine-Stepper-stepDescription) {
+  font-size: 0.75rem;
+}

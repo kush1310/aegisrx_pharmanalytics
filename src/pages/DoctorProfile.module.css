@@ -1,0 +1,173 @@
+/* PharmaLens — Doctor Profile Page */
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  animation: fadeIn 0.35s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Profile Card Doctor Avatar ─────────────────────────────────── */
+.profileCard {
+  border: 1px solid #e2e8f0;
+}
+
+.avatar {
+  width: 68px;
+  height: 68px;
+  min-width: 68px;
+  border-radius: 14px;
+  background: #eef2ff;
+  color: #4f46e5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Info Grid ──────────────────────────────────────────────────── */
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.infoItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8f9ff;
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+}
+
+.infoIcon {
+  color: #94a3b8;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.infoItem div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.infoLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+
+.infoValue {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0b1c30;
+  word-break: break-word;
+}
+
+/* ── Pharmacy Row ───────────────────────────────────────────────── */
+.pharmacyRow {
+  border: 1px solid #e2e8f0;
+  transition: border-color 150ms ease;
+}
+
+.pharmacyRow:hover {
+  border-color: rgba(79, 70, 229, 0.2);
+}
+
+.pharmIcon {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Medicine Chips Grid ────────────────────────────────────────── */
+.medicineGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.medicineChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.medicineChip:hover {
+  background: #d1fae5;
+  border-color: #a7f3d0;
+}
+
+.medIcon {
+  color: #059669;
+  flex-shrink: 0;
+}
+
+.medRemoveBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(5, 150, 105, 0.15);
+  color: #059669;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.medRemoveBtn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.medRemoveBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Empty State ────────────────────────────────────────────────── */
+.emptyState {
+  text-align: center;
+  border: 1px dashed #e2e8f0 !important;
+  background: #fafbff !important;
+}
+
+/* ── Hospital / Pharmacy icon pill ─────────────────────────────── */
+.hospitalIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}

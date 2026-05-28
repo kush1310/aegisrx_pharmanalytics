@@ -1,0 +1,27 @@
+/* Settings Page - Premium Design */
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.settingCard {
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: all 250ms ease;
+}
+
+.settingCard:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.dangerZone {
+  border: 1px solid #fecdd3;
+  background: #fff5f6;
+  border-radius: 16px;
+}

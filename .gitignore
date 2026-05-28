@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+dist-electron/
+release/
+
+# Databases and data storage
+data/*.db
+data/*.sqlite
+*.db
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Large raw data files (Excel imports)
+*.xlsx
+*.xls
+*.csv
+
+# Environments and Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# System/IDE Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvsca
+*.njsproj
+*.sln
+*.sw?
+*.log

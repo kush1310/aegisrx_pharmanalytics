@@ -1,0 +1,130 @@
+{
+  "name": "aegisrx-analytics",
+  "version": "1.0.0",
+  "description": "Pharmaceutical Analytics Desktop Application for Bhavesh Rafaliya",
+  "main": "dist-electron/main.js",
+  "author": "Bhavesh Rafaliya",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "preview": "vite preview",
+    "electron:dev": "vite --logLevel silent",
+    "electron:build": "npm run build",
+    "test": "vitest",
+    "lint": "eslint src --ext ts,tsx"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.2",
+    "@mantine/core": "^8.3.14",
+    "@mantine/dates": "^8.3.14",
+    "@mantine/dropzone": "^8.3.14",
+    "@mantine/form": "^8.3.14",
+    "@mantine/hooks": "^8.3.14",
+    "@mantine/modals": "^8.3.14",
+    "@mantine/notifications": "^8.3.14",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@tabler/icons-react": "^3.36.1",
+    "@types/nodemailer": "^8.0.0",
+    "better-sqlite3": "^12.10.0",
+    "dayjs": "^1.11.19",
+    "drizzle-orm": "^0.45.2",
+    "electron-store": "^10.0.0",
+    "file-saver": "^2.0.5",
+    "framer-motion": "^12.33.0",
+    "fuse.js": "^7.1.0",
+    "fuzzysort": "^3.1.0",
+    "hono": "^4.12.18",
+    "jose": "^6.2.3",
+    "jspdf": "^4.1.0",
+    "jspdf-autotable": "^5.0.7",
+    "nodemailer": "^8.0.9",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.4.0",
+    "recharts": "^3.8.0",
+    "three": "^0.183.2",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/file-saver": "^2.0.7",
+    "@types/node": "^22.19.10",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.183.1",
+    "@types/xlsx": "^0.0.35",
+    "@vitejs/plugin-react": "^4.4.0",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.1.0",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^40.2.1",
+    "electron-builder": "^26.7.0",
+    "eslint": "^9.39.2",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.7.0",
+    "vite": "^7.3.1",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^3.1.0",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.bhaveshrafaliya.suratpharma",
+    "productName": "AegisRx Analytics",
+    "copyright": "Copyright © 2026 Bhavesh Rafaliya",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "data/**/*",
+      "python/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "python",
+        "to": "python",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "SuratPharma-Portable-${version}.exe"
+    }
+  }
+}

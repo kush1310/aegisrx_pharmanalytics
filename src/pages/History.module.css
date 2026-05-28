@@ -1,0 +1,92 @@
+/* History Page - Premium Redesign */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  animation: fadeInUp 0.4s ease-out;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.headerCard {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.headerCard::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -15%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.25) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.headerCard * {
+  position: relative;
+  z-index: 1;
+}
+
+.searchInput input {
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  transition: all 200ms ease;
+}
+
+.searchInput input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.emptyState {
+  background: linear-gradient(135deg, #fafbff, #f5f3ff);
+  border: 1px solid rgba(99, 102, 241, 0.08);
+  text-align: center;
+}
+
+/* Summary Stat Cards */
+.statCard {
+  flex: 1;
+  min-width: 140px;
+  background: white;
+  transition: all 200ms ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Table Card */
+.tableCard {
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+/* Table Header - Sortable */
+.tableHeader {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+}
+
+.tableHeader th {
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #475569;
+  user-select: none;
+  transition: color 200ms ease;
+  white-space: nowrap;
+}
+
+.tableHeader th:hover {
+  color: #6366f1;
+}

@@ -1,0 +1,105 @@
+import { Hono } from 'hono';
+import crypto from 'crypto';
+import { eq, desc } from 'drizzle-orm';
+import { getDb } from '../db/index';
+import { excelUploads } from '../db/schema';
+import { processUploadInBackground } from '../services/UniversalProcessor';
+import * as XLSX from 'xlsx';
+import { getUniqueHeaders, analyzeHeaders } from './excel';
+
+const intelligentRouter = new Hono();
+
+intelligentRouter.post('/upload', async (c) => {
+  try {
+    const body = await c.req.json();
+    const fileBuffer = Buffer.from(body.buffer);
+    const fileName = body.fileName;
+    const fileHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+    const fileSize = fileBuffer.length;
+
+    const db = getDb();
+
+    // Deduplication check
+    const existing = db.select().from(excelUploads).where(eq(excelUploads.fileHash, fileHash)).get();
+    if (existing) {
+      return c.json({ success: false, error: 'This file has already been uploaded.' }, 409);
+    }
+
+    // Insert pending upload
+    const upload = db.insert(excelUploads).values({
+      fileName,
+      fileHash,
+      fileSize,
+      fileData: fileBuffer,
+      uploadDate: new Date().toISOString(),
+      status: 'PROCESSING'
+    }).returning().get();
+
+    let detectedFormat = 'unknown';
+    let confidence = 0;
+    try {
+      const wb = XLSX.read(fileBuffer, { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet) as any[];
+      if (raw.length > 0) {
+        const hdrs = getUniqueHeaders(raw);
+        const analysis = analyzeHeaders(hdrs);
+        detectedFormat = analysis.format;
+        confidence = analysis.confidence;
+      }
+    } catch (err) {
+      console.error('Error detecting format in upload endpoint:', err);
+    }
+
+    // Offload parsing and DB inserts to background task
+    processUploadInBackground(upload.id);
+
+    return c.json({ 
+      success: true, 
+      message: 'Upload received, processing in background.', 
+      uploadId: upload.id,
+      format: detectedFormat,
+      confidence
+    });
+
+  } catch (err: any) {
+    console.error('[intelligentRouter/upload]', err);
+    return c.json({ success: false, error: `Upload failed: ${err.message}` }, 500);
+  }
+});
+
+// Endpoint to check status of an upload
+intelligentRouter.get('/status/:id', async (c) => {
+  try {
+    const db = getDb();
+    const id = Number(c.req.param('id'));
+    const upload = db.select({
+      status: excelUploads.status,
+      fileData: excelUploads.fileData
+    }).from(excelUploads).where(eq(excelUploads.id, id)).get();
+    
+    if (!upload) return c.json({ success: false, error: 'Upload not found' }, 404);
+    
+    let format = 'unknown';
+    if (upload.status === 'COMPLETED' && upload.fileData) {
+      try {
+        const wb = XLSX.read(upload.fileData, { type: 'buffer' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(sheet) as any[];
+        if (raw.length > 0) {
+          const hdrs = getUniqueHeaders(raw);
+          const analysis = analyzeHeaders(hdrs);
+          format = analysis.format;
+        }
+      } catch (err) {
+        console.error('Error detecting format in status check:', err);
+      }
+    }
+    
+    return c.json({ success: true, status: upload.status, format });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch status' }, 500);
+  }
+});
+
+export { intelligentRouter };
