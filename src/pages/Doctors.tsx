@@ -355,6 +355,7 @@ export default function Doctors() {
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.03, duration: 0.3 }}
+                  style={{ position: 'relative' }}
                 >
                   <div 
                     className={styles.cardContent}
@@ -394,11 +395,18 @@ export default function Doctors() {
                     </Stack>
                   </div>
 
-                  <Group justify="space-between" align="center" mt="lg" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+                  {/* Qualification badge at bottom left */}
+                  <div className={styles.cardActions} onClick={(e) => e.stopPropagation()} style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>
                     <Badge size="sm" variant="light" color="indigo" radius="md" px="xs" py="md" className="font-bold">
                       {doctor.qualification}
                     </Badge>
+                  </div>
 
+                  {/* Three-dot menu — absolutely pinned to top-right corner */}
+                  <div
+                    style={{ position: 'absolute', top: 12, right: 12 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon 
@@ -426,7 +434,7 @@ export default function Doctors() {
                         </Menu.Item>
                       </Menu.Dropdown>
                     </Menu>
-                  </Group>
+                  </div>
                 </MotionCard>
               ))}
             </SimpleGrid>

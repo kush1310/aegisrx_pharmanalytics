@@ -111,6 +111,16 @@ function queueDesktopNotification(title: string, message: string) {
   processNotificationQueue();
 }
 
+/**
+ * firedTodayCache — in-memory deduplication registry for desktop push notifications.
+ *
+ * Keyed by `{entityId}-{eventType}-{YYYY-MM-DD}`. Once an event is added here,
+ * the desktop OS push will not fire again for that entity+event within the same
+ * app session — even if the user deletes the corresponding DB notification record.
+ * The Set is automatically reset on the next app launch (next calendar day).
+ */
+const firedTodayCache = new Set<string>();
+
 export async function checkEventsLogic() {
   try {
     const db = getDb();
@@ -133,10 +143,30 @@ export async function checkEventsLogic() {
       const dateMD = dateStr.substring(5, 10);
       if (dateMD !== todayMD) return;
 
+      /**
+       * Two-layer deduplication:
+       *
+       * Layer 1 — in-memory cache (firedTodayCache):
+       *   Prevents re-firing the OS desktop push even when the user has
+       *   cleared/deleted the DB notification record. The cache key encodes
+       *   entityId, eventType, and today's date so it resets automatically
+       *   on the next calendar day (when the app restarts).
+       *
+       * Layer 2 — DB existence check:
+       *   Prevents inserting a duplicate Notification row when the app
+       *   has NOT cleared the record yet (e.g., multiple server restarts
+       *   within the same day).
+       */
+      const cacheKey = `${entityId}-${eventType}-${todayStr}`;
+      if (firedTodayCache.has(cacheKey)) return;
+
       const existing = db.select().from(notifications)
         .where(eq(notifications.entityId, entityId))
         .all()
         .find(n => n.entityType === type && n.eventType === eventType && n.eventDate?.startsWith(todayStr));
+
+      // Mark fired in cache regardless — prevents re-fire even after DB clear
+      firedTodayCache.add(cacheKey);
 
       if (!existing) {
         // Strip emojis for database storage

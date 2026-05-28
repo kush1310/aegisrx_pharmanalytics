@@ -307,3 +307,228 @@ export function StatCardSkeletonGrid() {
     </SimpleGrid>
   );
 }
+
+// ─── Doctor Profile Skeleton ───────────────────────────────────────────────────
+
+/**
+ * DoctorProfileSkeleton — mirrors the full DoctorProfile page layout:
+ *   1. Header card: avatar circle + name + specialization + badge row + action buttons
+ *   2. Divider
+ *   3. Info grid: 6 rows of icon + label + value
+ *   4. Tabs row: two tab placeholders
+ *   5. Table skeleton: 4 rows of pharmacy data placeholders
+ *
+ * Shown while the doctor record is being fetched from the API. Replaces both
+ * the PageLoader spinner and the blur-overlay pattern for a smoother transition.
+ */
+export function DoctorProfileSkeleton() {
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+      {/* ── Header Card ─────────────────────────────────────── */}
+      <Card
+        style={{
+          border: '1px solid #e2e8f0',
+          borderRadius: '16px',
+          padding: '24px',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+        }}
+      >
+        {/* Top row: avatar + name area + action buttons */}
+        <Group justify="space-between" align="flex-start">
+          <Group gap="lg">
+            {/* Doctor avatar circle */}
+            <Skeleton circle height={64} width={64} />
+            <Stack gap="xs">
+              {/* Name */}
+              <Skeleton height={22} width={220} radius="md" />
+              {/* Specialization */}
+              <Skeleton height={13} width={140} radius="md" />
+              {/* Badge row: qualification + experience */}
+              <Group gap="xs" mt={4}>
+                <Skeleton height={22} width={80} radius="xl" />
+                <Skeleton height={22} width={90} radius="xl" />
+              </Group>
+            </Stack>
+          </Group>
+          {/* Action buttons: Edit + Export PDF + Delete */}
+          <Group gap="sm">
+            <Skeleton height={34} width={72} radius="md" />
+            <Skeleton height={34} width={110} radius="md" />
+            <Skeleton circle height={34} width={34} />
+          </Group>
+        </Group>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: '#f1f5f9', margin: '20px 0' }} />
+
+        {/* Info grid — 3 columns × 2 rows of icon + label + value */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '20px 32px',
+          }}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Group key={i} gap="sm" wrap="nowrap" align="flex-start">
+              {/* Icon placeholder */}
+              <Skeleton circle height={16} width={16} style={{ marginTop: 4, flexShrink: 0 }} />
+              <Stack gap={5} style={{ flex: 1 }}>
+                {/* Label */}
+                <Skeleton height={10} width="45%" radius="md" />
+                {/* Value */}
+                <Skeleton height={14} width={i % 2 === 0 ? '75%' : '60%'} radius="md" />
+              </Stack>
+            </Group>
+          ))}
+        </div>
+      </Card>
+
+      {/* ── Tabs Area ───────────────────────────────────────── */}
+      <div style={{ marginTop: 20 }}>
+        {/* Tab headers */}
+        <Group gap="md" style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: 4, marginBottom: 16 }}>
+          <Skeleton height={32} width={160} radius="md" />
+          <Skeleton height={32} width={180} radius="md" />
+        </Group>
+
+        {/* Tab content — linked pharmacies table placeholder */}
+        <Card
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '16px',
+            background: '#fff',
+          }}
+        >
+          {/* Add pharmacy button row */}
+          <Group justify="flex-end" mb="md">
+            <Skeleton height={34} width={140} radius="md" />
+          </Group>
+
+          {/* Table header */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1.5fr 1fr 1fr',
+              gap: 8,
+              padding: '8px 12px',
+              background: '#f8fafc',
+              borderRadius: '8px',
+              marginBottom: 8,
+            }}
+          >
+            {['55%', '45%', '50%', '35%'].map((w, i) => (
+              <Skeleton key={i} height={11} width={w} radius="md" />
+            ))}
+          </div>
+
+          {/* Table rows */}
+          {Array.from({ length: 4 }).map((_, rowIdx) => (
+            <div
+              key={rowIdx}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 1.5fr 1fr 1fr',
+                gap: 8,
+                padding: '10px 12px',
+                borderBottom: '1px solid #f8fafc',
+              }}
+            >
+              {['70%', '55%', '45%', '30%'].map((w, colIdx) => (
+                <Skeleton key={colIdx} height={12} width={w} radius="md" />
+              ))}
+            </div>
+          ))}
+        </Card>
+      </div>
+    </div>
+  );
+}
+// ─── Pharmacy Profile Skeleton ─────────────────────────────────────────────────
+
+/**
+ * PharmacyProfileSkeleton — mirrors the full PharmacyProfile page layout:
+ *   1. Header card: pill avatar + name + owner row + delete button
+ *   2. Detail stack: contact, address, license rows
+ *   3. Tabs row: one tab placeholder
+ *   4. Products list: 3 product row placeholders
+ *
+ * Shown while the pharmacy record is being fetched from the API.
+ * Replaces the PageLoader spinner and blur-overlay pattern.
+ */
+export function PharmacyProfileSkeleton() {
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+      {/* ── Header Card ─────────────────────────────────────── */}
+      <Card
+        style={{
+          border: '1px solid #e2e8f0',
+          borderRadius: '16px',
+          padding: '24px',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}
+      >
+        {/* Top row: avatar + name/owner + delete button */}
+        <Group justify="space-between" align="flex-start">
+          <Group gap="lg">
+            <Skeleton circle height={64} width={64} />
+            <Stack gap="xs">
+              {/* Pharmacy name */}
+              <Skeleton height={24} width={240} radius="md" />
+              {/* Owner row */}
+              <Group gap="xs">
+                <Skeleton circle height={14} width={14} />
+                <Skeleton height={13} width={160} radius="md" />
+              </Group>
+            </Stack>
+          </Group>
+          {/* Delete button */}
+          <Skeleton circle height={36} width={36} />
+        </Group>
+
+        {/* Detail rows: contact, address, license */}
+        <Stack gap="sm" mt="xl">
+          {[180, 280, 140].map((w, i) => (
+            <Group key={i} gap="sm">
+              <Skeleton circle height={18} width={18} />
+              <Skeleton height={14} width={w} radius="md" />
+            </Group>
+          ))}
+          {/* Optional: GST + drug license text lines */}
+          <Skeleton height={12} width={120} radius="md" ml={26} />
+          <Skeleton height={12} width={150} radius="md" ml={26} />
+        </Stack>
+      </Card>
+
+      {/* ── Tabs Row ────────────────────────────────────────── */}
+      <div style={{ marginTop: 24 }}>
+        <Group gap="md" style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: 4, marginBottom: 16 }}>
+          <Skeleton height={32} width={160} radius="md" />
+        </Group>
+
+        {/* Product rows */}
+        <Stack gap="md">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card
+              key={i}
+              style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                background: '#fff',
+              }}
+            >
+              <Group gap="sm">
+                <Skeleton circle height={40} width={40} />
+                <Skeleton height={15} width={i % 2 === 0 ? 200 : 160} radius="md" />
+              </Group>
+            </Card>
+          ))}
+        </Stack>
+      </div>
+    </div>
+  );
+}

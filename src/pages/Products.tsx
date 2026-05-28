@@ -371,7 +371,7 @@ export default function Products() {
             </Button>
             <input
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.pdf"
               style={{ display: 'none' }}
               id="bulk-product-upload"
               onChange={async (e) => {
@@ -481,6 +481,7 @@ export default function Products() {
                   key={product.id}
                   className={styles.productCard}
                   onClick={() => openDetailsModal(product.id)}
+                  style={{ position: 'relative' }}
                 >
                   <div className={styles.cardContent}>
                     <Group wrap="nowrap" gap="xs" align="center">
@@ -511,7 +512,11 @@ export default function Products() {
                     </Group>
                   </div>
 
-                  <div className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+                  {/* Three-dot menu — absolutely pinned to top-right corner */}
+                  <div
+                    style={{ position: 'absolute', top: 8, right: 8 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon 

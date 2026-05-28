@@ -384,8 +384,8 @@ export default function Pharmacies() {
         </Menu>
       </Group>
 
-      {/* Initial load or subsequent load: skeleton inline, no blur */}
-      {(isInitialLoading || isSubsequentLoading || isLoadingPharmacies) ? (
+      {/* Initial load skeleton — 2.5 s static; subsequent search/sort skeleton — 1 frame */}
+      {(isInitialLoading || isSubsequentLoading) ? (
         <PharmacyCardSkeletonGrid count={6} />
       ) : filteredPharmacies.length === 0 ? (
         <Card shadow="sm" radius="lg" p="xl" className={styles.emptyState}>
@@ -416,6 +416,7 @@ export default function Pharmacies() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03, duration: 0.3 }}
+              style={{ position: 'relative' }}
             >
               <div 
                 className={styles.cardContent}
@@ -452,7 +453,11 @@ export default function Pharmacies() {
                 </Stack>
               </div>
 
-              <Group justify="flex-end" align="center" mt="lg" className={styles.cardActions} onClick={(e) => e.stopPropagation()}>
+              {/* Three-dot menu — absolutely pinned to top-right corner */}
+              <div
+                style={{ position: 'absolute', top: 12, right: 12 }}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Menu position="bottom-end" withinPortal>
                   <Menu.Target>
                     <ActionIcon 
@@ -480,7 +485,7 @@ export default function Pharmacies() {
                     </Menu.Item>
                   </Menu.Dropdown>
                 </Menu>
-              </Group>
+              </div>
             </MotionCard>
           ))}
         </SimpleGrid>

@@ -6,7 +6,7 @@ import {
   Tabs, Paper, Modal, Select,
   Divider, Tooltip
 } from '@mantine/core';
-import PageLoader from '../components/PageLoader';
+import { DoctorProfileSkeleton } from '../components/SkeletonLoaders';
 import { notifications as notify } from '@mantine/notifications';
 import {
   IconStethoscope,
@@ -57,7 +57,6 @@ export default function DoctorProfile() {
   const [prescribedMedicines, setPrescribedMedicines] = useState<PrescribedMedicine[]>([]);
   const [allProducts,         setAllProducts]         = useState<{ value: string; label: string }[]>([]);
   const [loading,             setLoading]             = useState(true);
-  const [localLoading,        setLocalLoading]        = useState(true);
   const [editOpen,            setEditOpen]            = useState(false);
   const [linkPharmacyOpen,    setLinkPharmacyOpen]    = useState(false);
   const [addMedOpen,          setAddMedOpen]          = useState(false);
@@ -73,8 +72,6 @@ export default function DoctorProfile() {
   const fetchDoctor = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setLocalLoading(true);
-    const startTime = Date.now();
     try {
       const result = await api.get<Doctor>(`/api/doctors/${Number(id)}`);
       if (result.success && result.data) {
@@ -89,11 +86,6 @@ export default function DoctorProfile() {
       navigate('/doctors');
     } finally {
       setLoading(false);
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 3000 - elapsed);
-      setTimeout(() => {
-        setLocalLoading(false);
-      }, remaining);
     }
   }, [id, navigate]);
 
@@ -254,8 +246,8 @@ export default function DoctorProfile() {
 
   if (loading && !doctor) {
     return (
-      <div className={`${styles.container} flex items-center justify-center`} style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <PageLoader message="Fetching doctor details..." />
+      <div className={styles.container} style={{ marginTop: 24 }}>
+        <DoctorProfileSkeleton />
       </div>
     );
   }
@@ -277,8 +269,7 @@ export default function DoctorProfile() {
     <div className={styles.container}>
       <PageHeader title="Doctor Profile" showBack={true} />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div className={localLoading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+      <div className="mt-6">
 
       {/* ── Profile Card ─────────────────────────────────────── */}
       <Card shadow="xs" radius="md" p="xl" withBorder className={styles.profileCard}>
@@ -545,13 +536,6 @@ export default function DoctorProfile() {
           )}
         </Tabs.Panel>
       </Tabs>
-      </div>
-
-      {localLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-          <PageLoader message="Fetching doctor details..." />
-        </div>
-      )}
       </div>
 
       {/* ── Edit Modal ───────────────────────────────────────── */}

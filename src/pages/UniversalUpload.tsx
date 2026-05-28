@@ -46,8 +46,8 @@ export default function UniversalUpload() {
     if (files.length === 0) return;
     const file = files[0];
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
-      notifications.show({ title: 'Invalid File Type', message: 'Please upload .xlsx, .xls, or .csv', color: 'red', icon: <IconX size={18} /> });
+    if (!['xlsx', 'xls', 'csv', 'pdf'].includes(ext || '')) {
+      notifications.show({ title: 'Invalid File Type', message: 'Please upload .xlsx, .xls, .csv, or .pdf', color: 'red', icon: <IconX size={18} /> });
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
@@ -226,8 +226,9 @@ export default function UniversalUpload() {
                 <Badge variant="light" color="green" size="sm">Pharmacy Data</Badge>
                 <Badge variant="light" color="yellow" size="sm">Products</Badge>
                 <Badge variant="light" color="blue" size="sm">Sales Reports</Badge>
+                <Badge variant="light" color="red" size="sm">PDF Files</Badge>
               </Group>
-              <Text size="xs" c="dimmed" mt={8} className="text-slate-400">.xlsx, .xls, .csv — max 50MB — automated column-mapping heuristics</Text>
+              <Text size="xs" c="dimmed" mt={8} className="text-slate-400">.xlsx, .xls, .csv, .pdf — max 50MB — automated column-mapping heuristics</Text>
             </Stack>
           </Group>
         </Dropzone>

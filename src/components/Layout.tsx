@@ -67,6 +67,17 @@ export default function Layout() {
   } | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [globalSearchHistory, setGlobalSearchHistory] = useState<string[]>([]);
+
+  const GLOBAL_HISTORY_KEY = 'aegisrx_sh_global';
+
+  // Load persisted global search history on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(GLOBAL_HISTORY_KEY);
+      if (raw) setGlobalSearchHistory(JSON.parse(raw));
+    } catch { /* silent */ }
+  }, []);
 
   // Debounced search — 300 ms delay avoids excessive IPC calls
   useEffect(() => {
@@ -388,6 +399,42 @@ export default function Layout() {
               )}
             </div>
 
+            {/* Global Search History Dropdown — shown when input is focused and empty */}
+            {showSuggestions && searchQuery.trim().length === 0 && globalSearchHistory.length > 0 && (
+              <div className="absolute left-0 right-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl mt-1.5 overflow-hidden max-h-[280px] overflow-y-auto">
+                <div className="px-3 py-2 flex items-center justify-between border-b border-gray-100">
+                  <span className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">Recent Searches</span>
+                  <button
+                    type="button"
+                    className="text-[10px] text-red-500 font-semibold hover:text-red-600 cursor-pointer bg-transparent border-none"
+                    onClick={() => {
+                      localStorage.removeItem(GLOBAL_HISTORY_KEY);
+                      setGlobalSearchHistory([]);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                {globalSearchHistory.map((term, idx) => (
+                  <button
+                    key={`gh-${idx}`}
+                    type="button"
+                    className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors flex items-center gap-2.5 cursor-pointer text-sm text-gray-600 font-medium border-b border-gray-50 last:border-0"
+                    onClick={() => {
+                      setSearchQuery(term);
+                      setShowSuggestions(true);
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    {term}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Advanced Search Dropdown */}
             {showSuggestions && searchQuery.trim().length > 0 && searchResults && (
               <div className="absolute left-0 right-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl mt-1.5 overflow-hidden divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
@@ -405,6 +452,14 @@ export default function Layout() {
                           type="button"
                           className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-start gap-2.5 group cursor-pointer"
                           onClick={() => {
+                            // Save the search term to global history before navigating
+                            const term = searchQuery.trim();
+                            if (term.length >= 2) {
+                              const prev = globalSearchHistory.filter(h => h !== term);
+                              const updated = [term, ...prev].slice(0, 8);
+                              setGlobalSearchHistory(updated);
+                              try { localStorage.setItem(GLOBAL_HISTORY_KEY, JSON.stringify(updated)); } catch { /* quota */ }
+                            }
                             navigate(`/doctors/${doc.id}`);
                             setShowSuggestions(false);
                             setSearchQuery('');
@@ -438,6 +493,13 @@ export default function Layout() {
                           type="button"
                           className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-start gap-2.5 group cursor-pointer"
                           onClick={() => {
+                            const term = searchQuery.trim();
+                            if (term.length >= 2) {
+                              const prev = globalSearchHistory.filter(h => h !== term);
+                              const updated = [term, ...prev].slice(0, 8);
+                              setGlobalSearchHistory(updated);
+                              try { localStorage.setItem(GLOBAL_HISTORY_KEY, JSON.stringify(updated)); } catch { /* quota */ }
+                            }
                             navigate(`/pharmacies/${ph.id}`);
                             setShowSuggestions(false);
                             setSearchQuery('');
@@ -471,6 +533,13 @@ export default function Layout() {
                           type="button"
                           className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-start gap-2.5 group cursor-pointer"
                           onClick={() => {
+                            const term = searchQuery.trim();
+                            if (term.length >= 2) {
+                              const prev = globalSearchHistory.filter(h => h !== term);
+                              const updated = [term, ...prev].slice(0, 8);
+                              setGlobalSearchHistory(updated);
+                              try { localStorage.setItem(GLOBAL_HISTORY_KEY, JSON.stringify(updated)); } catch { /* quota */ }
+                            }
                             navigate(`/products?search=${encodeURIComponent(prod.name)}`);
                             setShowSuggestions(false);
                             setSearchQuery('');

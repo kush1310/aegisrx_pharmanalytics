@@ -10,7 +10,7 @@ import {
   Tabs,
   Paper
 } from '@mantine/core';
-import PageLoader from '../components/PageLoader';
+import { PharmacyProfileSkeleton } from '../components/SkeletonLoaders';
 import { notifications } from '@mantine/notifications';
 import {
   IconPill,
@@ -28,6 +28,19 @@ import PageHeader from '@/components/PageHeader';
 import { api } from '@/lib/api';
 import styles from './PharmacyProfile.module.css';
 
+/**
+ * PharmacyProfile
+ *
+ * Displays the full profile of a single pharmacy including owner details,
+ * contact information, linked doctor, and registered products.
+ *
+ * Uses PharmacyProfileSkeleton during the initial API fetch instead of a
+ * PageLoader spinner or blur overlay — skeleton mirrors the exact page layout.
+ *
+ * @param id - Pharmacy ID sourced from route params (/pharmacies/:id)
+ * @fetches GET /api/pharmacies/:id — full pharmacy record with doctor + products
+ * @redirects /pharmacies — if pharmacy is not found or API call fails
+ */
 export default function PharmacyProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -35,13 +48,21 @@ export default function PharmacyProfile() {
   
   const [pharmacy, setPharmacy] = useState<Pharmacy | null>(null);
   const [loading, setLoading] = useState(true);
-  const [localLoading, setLocalLoading] = useState(true);
 
+  /**
+   * fetchPharmacy
+   *
+   * Retrieves the pharmacy record by ID from the REST API. Sets loading state
+   * to true at entry and false on completion. Redirects to /pharmacies with
+   * an error notification if the record is not found or the request fails.
+   *
+   * @fetches GET /api/pharmacies/:id
+   * @redirects /pharmacies — on 404 or API error
+   * @edge-cases Invalid (non-numeric) ID is handled via Number(id) coercion
+   */
   const fetchPharmacy = async () => {
     if (!id) return;
     setLoading(true);
-    setLocalLoading(true);
-    const startTime = Date.now();
     try {
       const result = await api.get<Pharmacy>(`/api/pharmacies/${Number(id)}`);
       if (result.success && result.data) {
@@ -58,11 +79,6 @@ export default function PharmacyProfile() {
       navigate('/pharmacies');
     } finally {
       setLoading(false);
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 3000 - elapsed);
-      setTimeout(() => {
-        setLocalLoading(false);
-      }, remaining);
     }
   };
 
@@ -106,6 +122,14 @@ export default function PharmacyProfile() {
     });
   };
 
+  /**
+   * formatDate
+   *
+   * Converts an ISO date string to a human-readable Indian locale date.
+   *
+   * @param  {string | null} dateStr - ISO date string or null
+   * @returns {string | null}        - Formatted date (e.g. "12 June 1985") or null
+   */
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return null;
     return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -115,10 +139,14 @@ export default function PharmacyProfile() {
     });
   };
 
+  // Render skeleton while the API call is in flight — no spinner, no blur
   if (loading && !pharmacy) {
     return (
-      <div className={`${styles.container} flex items-center justify-center`} style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <PageLoader message="Fetching pharmacy details..." />
+      <div className={styles.container} style={{ marginTop: 24 }}>
+        <PageHeader title="Pharmacy Profile" showBack={true} />
+        <div style={{ marginTop: 24 }}>
+          <PharmacyProfileSkeleton />
+        </div>
       </div>
     );
   }
@@ -133,8 +161,7 @@ export default function PharmacyProfile() {
         showBack={true} 
       />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div className={localLoading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+      <div className="mt-6">
         {/* Profile Card */}
         <Card shadow="sm" radius="lg" p="xl" className={styles.profileCard}>
         <Group justify="space-between" align="flex-start">
@@ -255,13 +282,6 @@ export default function PharmacyProfile() {
           </Stack>
         </Tabs.Panel>
       </Tabs>
-      </div>
-
-      {localLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-          <PageLoader message="Fetching pharmacy details..." />
-        </div>
-      )}
       </div>
     </div>
   );
