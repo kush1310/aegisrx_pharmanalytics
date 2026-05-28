@@ -578,7 +578,7 @@ export default function Login() {
           )}
 
           <Text className={styles.footer} ta="center" mt="sm">
-            AegisRx Analytics v1.0.0
+            AegisRx Analytics v1.8.9
             <br />
             © 2026 AegisRx Analytics. All rights reserved.
           </Text>

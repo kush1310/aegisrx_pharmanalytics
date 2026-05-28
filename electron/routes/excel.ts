@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { eq, desc, inArray, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import * as XLSX from 'xlsx';
-import { BrowserWindow } from 'electron';
 import { getDb } from '../db/index';
 import { excelUploads, doctors, pharmacies, products, pharmacyProducts, salesTransactions } from '../db/schema';
 
@@ -387,7 +386,9 @@ excelRouter.post('/confirm', async (c) => {
         fileHash,
         fileSize,
         fileData: fileBuffer,
-        uploadDate: new Date().toISOString()
+        uploadDate: new Date().toISOString(),
+        format: format,
+        status: 'COMPLETED'
       }).returning().get();
       uploadId = upload.id;
 
@@ -503,16 +504,19 @@ function isPdfBuf(buf: Buffer): boolean {
  * Used by the history enrichment loop to detect format and count records.
  *
  * PDF path — smart content-aware parser (matches parsePdfToRowsBackground):
- *   1. Find the column-header line (contains 'product' + 'amount').
- *   2. Product rows: line ending in 4 numeric groups → {Product, Free, FreeAmt, SaleQty, Amount}
- *   3. Name rows: no trailing numbers → {Product} only (pharmacy header rows)
- *   4. Party Total / Grand Total lines → skipped
- *   5. Fallback: tab/comma delimiter if no header line detected.
+ *   1. Splits raw PDF text by lines, identifies start of table by header.
+ *   2. Ignores noise lines (addresses, page counts, repeating headers, etc.).
+ *   3. Product rows: matches exactly 4 numeric columns with two decimal places.
+ *   4. Pharmacy headers: matched non-noise lines with no trailing numeric fields.
  *
  * Excel path: delegates to XLSX.read().
  *
- * @param  {Buffer} buf   - Raw file bytes.
- * @returns {Promise<any[]>} - Array of row objects; empty array on failure.
+ * @param  {Buffer} buf                      - Raw file buffer containing PDF or Excel data; must be non-empty.
+ * @returns {Promise<Array<Record<string, any>>>} - Array of parsed row objects; empty array on failure.
+ * @validates                                - PDF magic number check (isPdfBuf), header line index, noise lines.
+ * @required-inputs                          - Non-empty buffer.
+ * @redirects                                - None.
+ * @edge-cases                               - Returns empty array if parse errors occur.
  */
 async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
   if (isPdfBuf(buf)) {
@@ -539,14 +543,38 @@ async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
       }
 
       if (headerLineIdx !== -1) {
-        const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+        // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
+        // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
+        const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
         const rows: any[] = [];
 
         for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
           const line  = rawLines[i];
           const lower = line.toLowerCase();
 
-          if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+          // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
+          const isNoise =
+            lower.startsWith('party total') ||
+            lower.startsWith('grand total') ||
+            lower === 'total' ||
+            lower === 'grandtotal' ||
+            lower.includes('pharma distributors') ||
+            lower.includes('surat dawa bazaar') ||
+            lower.includes('vastadevdi road') ||
+            lower.includes('katargam') ||
+            lower.includes('6th floor') ||
+            lower.includes('601 to 603') ||
+            lower.includes('9898530808') ||
+            lower.includes('0261') ||
+            lower.includes('productfreefreeamt') ||
+            (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
+            lower.includes('wise list report') ||
+            lower.includes('product + party') ||
+            lower.includes('page') ||
+            /^\d+\/\d+$/.test(lower) ||
+            (lower.startsWith('from:') && lower.includes('to:'));
+
+          if (isNoise) continue;
 
           const match = productRowRegex.exec(line);
           if (match) {
@@ -605,13 +633,14 @@ excelRouter.get('/history', async (c) => {
       fileSize:   excelUploads.fileSize,
       uploadDate: excelUploads.uploadDate,
       status:     excelUploads.status,
+      format:     excelUploads.format,
     }).from(excelUploads).orderBy(desc(excelUploads.uploadDate));
 
     // Enrich each upload with record count and detected format (PDF-aware)
     const enriched = await Promise.all(
       uploads.map(async (u) => {
         let recordCount   = 0;
-        let detectedFormat: string = 'unknown';
+        let detectedFormat = u.format || 'unknown';
         try {
           // Count linked sales transactions for this upload
           const countResult = db.select({ id: salesTransactions.id })
@@ -620,28 +649,40 @@ excelRouter.get('/history', async (c) => {
             .all();
           recordCount = countResult.length;
 
-          // Fetch raw file bytes and detect format (PDF or Excel)
-          const full = db.select({ fileData: excelUploads.fileData })
-            .from(excelUploads)
-            .where(eq(excelUploads.id, u.id))
-            .get();
+          // If format is missing (legacy uploads), parse and persist it
+          if (!u.format) {
+            const full = db.select({ fileData: excelUploads.fileData })
+              .from(excelUploads)
+              .where(eq(excelUploads.id, u.id))
+              .get();
 
-          if (full?.fileData) {
-            const raw = await extractRowsFromBuffer(full.fileData as Buffer);
-            if (raw.length > 0) {
-              const hdrs     = getUniqueHeaders(raw);
-              const analysis = analyzeHeaders(hdrs);
-              detectedFormat = analysis.format;
-              if (recordCount === 0) recordCount = raw.length;
-            }
-            // Fallback: if header-based analysis is ambiguous but sales transactions
-            // exist for this upload, it is definitively a party_report (sales data)
-            if (detectedFormat === 'unknown' && recordCount > 0) {
-              detectedFormat = 'party_report';
+            if (full?.fileData) {
+              const raw = await extractRowsFromBuffer(full.fileData as Buffer);
+              if (raw.length > 0) {
+                const hdrs     = getUniqueHeaders(raw);
+                const analysis = analyzeHeaders(hdrs);
+                detectedFormat = analysis.format;
+                if (recordCount === 0) recordCount = raw.length;
+              }
+              // Fallback: if header-based analysis is ambiguous but sales transactions
+              // exist for this upload, it is definitively a party_report (sales data)
+              if (detectedFormat === 'unknown' && recordCount > 0) {
+                detectedFormat = 'party_report';
+              }
+              // Save format back to DB to avoid future parses
+              db.update(excelUploads).set({ format: detectedFormat }).where(eq(excelUploads.id, u.id)).run();
             }
           }
         } catch { /* ignore per-upload enrichment errors */ }
-        return { ...u, recordCount, detectedFormat };
+        return {
+          id: u.id,
+          fileName: u.fileName,
+          fileSize: u.fileSize,
+          uploadDate: u.uploadDate,
+          status: u.status,
+          recordCount,
+          detectedFormat
+        };
       })
     );
 

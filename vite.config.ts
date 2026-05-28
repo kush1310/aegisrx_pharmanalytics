@@ -21,6 +21,7 @@ export default defineConfig({
                 'electron',
                 '@hono/node-server',
                 'xlsx',
+                'pdf-parse',
               ]
             }
           }

@@ -19,26 +19,18 @@ function isPdfBuffer(buf: Buffer): boolean {
  * parsePdfToRowsBackground
  *
  * Content-aware PDF parser for pharma party/sales report PDFs.
- * Identical parsing strategy to parsePdfToRows in intelligentRouter.ts.
+ * Splits raw PDF text by lines, identifies the start of the table from the header index
+ * containing 'product' and 'amount', and processes subsequent lines. Each line is checked
+ * against a strict numeric format regex. Valid product rows are split into product details
+ * and their 4 corresponding numeric values. Noise lines (address, page numbers, metadata, totals)
+ * are ignored. Real pharmacy headers are identified and pushed as dictionary rows with no numeric details.
  *
- * Strategy (handles space-separated table PDFs like the Pharma Distributors format):
- *   1. pdf-parse extracts the full document text as a flat string.
- *   2. Lines are split, trimmed, and filtered.
- *   3. The first line that contains BOTH 'product' and 'amount' keywords (case-insensitive)
- *      is treated as the column-header line. All preceding lines (company info, date range,
- *      report title) are skipped entirely.
- *   4. Each subsequent line is classified:
- *      - 4 numeric tokens at the end  → product row {Product, Free, FreeAmt, SaleQty, Amount}
- *      - No trailing numeric tokens   → pharmacy/party name row {Product} (no Amount key)
- *      - Starts with 'Party Total' or 'Grand Total' → skipped
- *   5. Pharmacy name rows have no Amount key, so processSalesAnalytics treats them as
- *      currentPharmacyName headers via the existing isPharmacyHeader detection.
- *
- * Fallback: if no header line is found, uses tab or comma delimiter on line 0.
- *
- * @param  {Buffer} buf      - PDF file buffer.
- * @returns {Promise<any[]>} - Array of row objects keyed Product/Free/FreeAmt/SaleQty/Amount.
- * @edge-cases               - Returns empty array if pdf-parse throws or text is blank.
+ * @param  {Buffer} buf                      - Raw PDF file buffer; must be non-empty.
+ * @returns {Promise<Array<Record<string, any>>>} - Array of parsed product row objects and pharmacy headers.
+ * @validates                                - PDF magic number check (caller side), header row occurrence, noise patterns.
+ * @required-inputs                          - Non-empty PDF Buffer.
+ * @redirects                                - None.
+ * @edge-cases                               - Returns empty array if pdf-parse fails, or if no header is found.
  */
 async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
   try {
@@ -65,17 +57,38 @@ async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
     }
 
     if (headerLineIdx !== -1) {
-      // Product row pattern: any text (product name) followed by exactly 4 numeric groups.
-      // Handles Indian number formats (digits, commas, dots).
-      const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+      // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
+      // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
+      const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
       const rows: any[] = [];
 
       for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
         const line  = rawLines[i];
         const lower = line.toLowerCase();
 
-        // Skip Party Total and Grand Total summary rows — they duplicate product data
-        if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+        // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
+        const isNoise =
+          lower.startsWith('party total') ||
+          lower.startsWith('grand total') ||
+          lower === 'total' ||
+          lower === 'grandtotal' ||
+          lower.includes('pharma distributors') ||
+          lower.includes('surat dawa bazaar') ||
+          lower.includes('vastadevdi road') ||
+          lower.includes('katargam') ||
+          lower.includes('6th floor') ||
+          lower.includes('601 to 603') ||
+          lower.includes('9898530808') ||
+          lower.includes('0261') ||
+          lower.includes('productfreefreeamt') ||
+          (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
+          lower.includes('wise list report') ||
+          lower.includes('product + party') ||
+          lower.includes('page') ||
+          /^\d+\/\d+$/.test(lower) ||
+          (lower.startsWith('from:') && lower.includes('to:'));
+
+        if (isNoise) continue;
 
         const match = productRowRegex.exec(line);
         if (match) {

@@ -55,6 +55,9 @@ export async function getTransporter() {
 export async function sendOtpEmail(to: string, otp: string) {
   try {
     const client = await getTransporter();
+    if (!client) {
+      throw new Error('Mail transporter is not initialized');
+    }
     const info = await client.sendMail({
       from: process.env.SMTP_FROM || '"AegisRx Analytics Support" <support@aegisrx.com>',
       to,

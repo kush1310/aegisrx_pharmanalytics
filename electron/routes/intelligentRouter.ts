@@ -26,24 +26,18 @@ function isPdfBuffer(buf: Buffer): boolean {
  * parsePdfToRows
  *
  * Content-aware PDF parser for pharma party/sales report PDFs.
+ * Splits raw PDF text by lines, identifies the start of the table from the header index
+ * containing 'product' and 'amount', and processes subsequent lines. Each line is checked
+ * against a strict numeric format regex. Valid product rows are split into product details
+ * and their 4 corresponding numeric values. Noise lines (address, page numbers, metadata, totals)
+ * are ignored. Real pharmacy headers are identified and pushed as dictionary rows with no numeric details.
  *
- * Strategy (handles space-separated table PDFs like the Pharma Distributors format):
- *   1. pdf-parse extracts the full document text as a flat string.
- *   2. Lines are split, trimmed, and de-duplicated.
- *   3. The first line that contains BOTH 'product' and 'amount' keywords is treated
- *      as the column-header line. All preceding lines (company info, title) are skipped.
- *   4. Each subsequent line is classified:
- *      - 4 numeric tokens at the end  → product row {Product, Free, FreeAmt, SaleQty, Amount}
- *      - No numeric tokens at end      → pharmacy/party name row {Product} (no Amount key)
- *      - Starts with 'party total' or 'grand total' → skipped
- *   5. The pharmacy rows have no Amount key, which causes processSalesAnalytics to
- *      treat them as currentPharmacyName headers (isPharmacyHeader detection).
- *
- * Fallback: if no header line is detected, falls back to tab or comma delimiter.
- *
- * @param  {Buffer} buf       - PDF file buffer.
- * @returns {Promise<any[]>}  - Array of row objects; empty array on failure.
- * @edge-cases                - Returns empty array if pdf-parse throws or text is blank.
+ * @param  {Buffer} buf                      - Raw PDF file buffer; must be non-empty.
+ * @returns {Promise<Array<Record<string, any>>>} - Array of parsed product row objects and pharmacy headers.
+ * @validates                                - PDF magic number check (caller side), header row occurrence, noise patterns.
+ * @required-inputs                          - Non-empty PDF Buffer.
+ * @redirects                                - None.
+ * @edge-cases                               - Returns empty array if pdf-parse fails, or if no header is found.
  */
 async function parsePdfToRows(buf: Buffer): Promise<any[]> {
   try {
@@ -70,17 +64,38 @@ async function parsePdfToRows(buf: Buffer): Promise<any[]> {
     }
 
     if (headerLineIdx !== -1) {
-      // Regex: product name (greedy text) followed by exactly 4 numeric groups
-      // Handles Indian number formats (digits + optional commas/dots)
-      const productRowRegex = /^(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/;
+      // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
+      // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
+      const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
       const rows: any[] = [];
 
       for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
         const line  = rawLines[i];
         const lower = line.toLowerCase();
 
-        // Skip Party Total and Grand Total summary rows
-        if (lower.startsWith('party total') || lower.startsWith('grand total') || lower === 'total') continue;
+        // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
+        const isNoise =
+          lower.startsWith('party total') ||
+          lower.startsWith('grand total') ||
+          lower === 'total' ||
+          lower === 'grandtotal' ||
+          lower.includes('pharma distributors') ||
+          lower.includes('surat dawa bazaar') ||
+          lower.includes('vastadevdi road') ||
+          lower.includes('katargam') ||
+          lower.includes('6th floor') ||
+          lower.includes('601 to 603') ||
+          lower.includes('9898530808') ||
+          lower.includes('0261') ||
+          lower.includes('productfreefreeamt') ||
+          (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
+          lower.includes('wise list report') ||
+          lower.includes('product + party') ||
+          lower.includes('page') ||
+          /^\d+\/\d+$/.test(lower) ||
+          (lower.startsWith('from:') && lower.includes('to:'));
+
+        if (isNoise) continue;
 
         const match = productRowRegex.exec(line);
         if (match) {
@@ -140,17 +155,7 @@ intelligentRouter.post('/upload', async (c) => {
       return c.json({ success: false, error: 'This file has already been uploaded.' }, 409);
     }
 
-    // Persist the raw file bytes and mark the record as PROCESSING
-    const upload = db.insert(excelUploads).values({
-      fileName,
-      fileHash,
-      fileSize,
-      fileData:   fileBuffer,
-      uploadDate: new Date().toISOString(),
-      status:     'PROCESSING'
-    }).returning().get();
-
-    // Format detection — PDF branch and Excel/CSV branch
+    // Format detection — PDF branch and Excel/CSV branch (run before insert)
     let detectedFormat = 'unknown';
     let confidence     = 0;
 
@@ -174,6 +179,17 @@ intelligentRouter.post('/upload', async (c) => {
     } catch (err) {
       console.error('[intelligentRouter] Format detection error:', err);
     }
+
+    // Persist the raw file bytes and mark the record as PROCESSING with detectedFormat
+    const upload = db.insert(excelUploads).values({
+      fileName,
+      fileHash,
+      fileSize,
+      fileData:   fileBuffer,
+      uploadDate: new Date().toISOString(),
+      status:     'PROCESSING',
+      format:     detectedFormat
+    }).returning().get();
 
     // Offload full DB inserts to background task — non-blocking
     processUploadInBackground(upload.id);
@@ -199,36 +215,12 @@ intelligentRouter.get('/status/:id', async (c) => {
     const id = Number(c.req.param('id'));
     const upload = db.select({
       status:   excelUploads.status,
-      fileData: excelUploads.fileData
+      format:   excelUploads.format
     }).from(excelUploads).where(eq(excelUploads.id, id)).get();
 
     if (!upload) return c.json({ success: false, error: 'Upload not found' }, 404);
 
-    let format = 'unknown';
-    if (upload.status === 'COMPLETED' && upload.fileData) {
-      try {
-        const buf: Buffer = upload.fileData as Buffer;
-        let rawRows: any[] = [];
-
-        if (isPdfBuffer(buf)) {
-          rawRows = await parsePdfToRows(buf);
-        } else {
-          const wb    = XLSX.read(buf, { type: 'buffer' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          rawRows     = XLSX.utils.sheet_to_json(sheet) as any[];
-        }
-
-        if (rawRows.length > 0) {
-          const hdrs     = getUniqueHeaders(rawRows);
-          const analysis = analyzeHeaders(hdrs);
-          format         = analysis.format;
-        }
-      } catch (err) {
-        console.error('[intelligentRouter] Status format detection error:', err);
-      }
-    }
-
-    return c.json({ success: true, status: upload.status, format });
+    return c.json({ success: true, status: upload.status, format: upload.format || 'unknown' });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to fetch status' }, 500);
   }

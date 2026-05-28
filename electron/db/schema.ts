@@ -130,7 +130,9 @@ export const excelUploads = sqliteTable('ExcelUpload', {
   fileData:   blob('fileData', { mode: 'buffer' }).notNull(),
   uploadDate: text('uploadDate').notNull().default(sql`(datetime('now'))`),
   status:     text('status').notNull().default('PROCESSED'),
+  format:     text('format'),
 });
+
 
 // ── Notifications ──────────────────────────────────────────────────
 export const notifications = sqliteTable('Notification', {

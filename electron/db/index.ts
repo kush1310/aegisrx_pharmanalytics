@@ -85,17 +85,29 @@ export function initDb(dbPath: string) {
   `);
   _sqlite.exec('CREATE INDEX IF NOT EXISTS dp_doctor_idx ON DoctorProduct(doctorId)');
   _sqlite.exec('CREATE INDEX IF NOT EXISTS dp_product_idx ON DoctorProduct(productId)');
+  // ── ExcelUpload migration (support format column) ──
+  try {
+    const uploadInfo = _sqlite.prepare("PRAGMA table_info(ExcelUpload)").all() as any[];
+    const uploadCols = uploadInfo.map(col => col.name);
+    if (!uploadCols.includes('format')) {
+      _sqlite.exec("ALTER TABLE ExcelUpload ADD COLUMN format TEXT");
+      console.log('[DB] Added format column to ExcelUpload table.');
+    }
+  } catch (err: any) {
+    console.error('[DB] ExcelUpload migration error:', err.message);
+  }
 
   _db = drizzle(_sqlite, { schema });
   return _db;
 }
+
 
 export function getDb() {
   if (!_db) throw new Error('Database not initialized. Call initDb() first.');
   return _db;
 }
 
-export function getSqlite() {
+export function getSqlite(): any {
   if (!_sqlite) throw new Error('Database not initialized.');
   return _sqlite;
 }

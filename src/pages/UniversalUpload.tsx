@@ -186,15 +186,40 @@ export default function UniversalUpload() {
               icon: <IconCircleCheck size={18} />
             });
             navigate(`/analytics?uploadId=${uploadId}`);
-          } else {
+          } else if (format === 'product') {
             notifications.show({
               title: 'Processing Complete',
               message: 'Product Master data has been parsed and integrated successfully.',
               color: 'green',
               icon: <IconCircleCheck size={18} />
             });
+            navigate('/products');
+          } else if (format === 'doctor') {
+            notifications.show({
+              title: 'Processing Complete',
+              message: 'Doctor Master data has been parsed and integrated successfully.',
+              color: 'green',
+              icon: <IconCircleCheck size={18} />
+            });
+            navigate('/doctors');
+          } else if (format === 'pharmacy') {
+            notifications.show({
+              title: 'Processing Complete',
+              message: 'Pharmacy Master data has been parsed and integrated successfully.',
+              color: 'green',
+              icon: <IconCircleCheck size={18} />
+            });
+            navigate('/pharmacies');
+          } else {
+            notifications.show({
+              title: 'Processing Complete',
+              message: 'Data has been parsed and integrated successfully.',
+              color: 'green',
+              icon: <IconCircleCheck size={18} />
+            });
             handleReset();
           }
+
         } else if (result.success && (result as any).status === 'ERROR') {
           setProcessingComplete(true); // still allow viewing
           notifications.show({

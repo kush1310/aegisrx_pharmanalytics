@@ -289,7 +289,7 @@ export default function SignUp() {
           </Text>
 
           <Text className={styles.footer} ta="center" mt="sm">
-            AegisRx Analytics v1.7.6
+            AegisRx Analytics v1.8.9
             <br />
             © 2026 The Developers
           </Text>

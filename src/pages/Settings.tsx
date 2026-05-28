@@ -92,7 +92,7 @@ export default function Settings() {
               <Text fw={800} className="text-slate-700">Version</Text>
               <Text size="sm" c="dimmed" className="text-slate-500">AegisRx Analytics Platform</Text>
             </Stack>
-            <Badge variant="outline" color="indigo" size="md">v1.7.6</Badge>
+            <Badge variant="outline" color="indigo" size="md">v1.8.9</Badge>
           </Group>
           <Divider className="border-slate-100" />
           <Group justify="space-between">
