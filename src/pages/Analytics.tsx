@@ -114,12 +114,18 @@ export default function Analytics() {
     setSelectedUpload(uploadIdParam || null);
   }, [uploadIdParam]);
 
-  /* ── Fetch uploads list ─────────────────────────────────────── */
+  /* ── Fetch uploads list — only party_report (sales) uploads shown ─── */
   const fetchUploads = async () => {
     try {
       const res = await api.get<UploadSummary[]>('/api/excel/history');
       if (res.success && res.data) {
-        setUploads((res.data as UploadSummary[]));
+        // Only show uploads that contain sales transaction data (party_report format)
+        // Doctor/pharmacy/product master uploads have no analytics data to display
+        const allUploads = res.data as (UploadSummary & { detectedFormat?: string })[];
+        const salesUploads = allUploads.filter(
+          u => u.detectedFormat === 'party_report' || u.detectedFormat === undefined
+        );
+        setUploads(salesUploads);
       }
     } catch (err) {
       console.error('[Analytics] Failed to fetch uploads:', err);
@@ -337,7 +343,7 @@ export default function Analytics() {
             placeholder="Select upload file..."
             data={uploads.map(u => ({
               value: String(u.id),
-              label: `${u.fileName.replace(/\.xlsx?$/i, '')} — ${new Date(u.uploadDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+            label: `${u.fileName.replace(/\.(xlsx?|csv|pdf)$/i, '')} — ${new Date(u.uploadDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
             }))}
             value={selectedUpload || ''}
             onChange={v => setSelectedUpload(v || null)}
@@ -398,9 +404,9 @@ export default function Analytics() {
           <Stack align="center" gap="sm">
             <IconChartBar size={48} stroke={1} color="#94a3b8" />
             <Text fw={600} size="sm">No upload selected</Text>
-            <Text size="xs" c="dimmed">Please select an Excel upload from the dropdown above to view analytics.</Text>
+            <Text size="xs" c="dimmed">Please select a file upload from the dropdown above to view analytics.</Text>
             <Button size="xs" variant="light" onClick={() => navigate('/upload')}>
-              Upload New Excel File
+              Upload File (Excel, CSV, or PDF)
             </Button>
           </Stack>
         </Paper>
@@ -492,7 +498,7 @@ export default function Analytics() {
                   <Text fw={600} size="sm">No business data matches selection</Text>
                   <Text size="xs" c="dimmed">Please select doctors from the checkboxes or upload a file.</Text>
                   <Button size="xs" variant="light" onClick={() => navigate('/upload')}>
-                    Upload Analytics File
+                    Upload Analytics File (Excel, CSV, or PDF)
                   </Button>
                 </Stack>
               </Paper>

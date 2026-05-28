@@ -487,51 +487,131 @@ excelRouter.post('/confirm', async (c) => {
 });
 
 // ── GET /api/excel/history ────────────────────────────────────────────
+/**
+ * isPdfBuf — checks first 4 bytes for %PDF magic number.
+ * @param {Buffer} buf - Raw file bytes from the database.
+ * @returns {boolean}
+ */
+function isPdfBuf(buf: Buffer): boolean {
+  return buf.length >= 4 && buf.slice(0, 4).toString('ascii') === '%PDF';
+}
+
+/**
+ * extractRowsFromBuffer
+ *
+ * Parses either a PDF or an Excel/CSV buffer into a row-object array.
+ * Used by the history enrichment loop and the analytics format detector.
+ * PDF path: dynamically imports pdf-parse, splits text into lines, detects
+ * tab vs comma delimiter, treats line 0 as headers.
+ * Excel path: delegates to XLSX.read().
+ *
+ * @param  {Buffer} buf   - Raw file bytes.
+ * @returns {Promise<any[]>} - Array of row objects; empty array on failure.
+ */
+async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
+  if (isPdfBuf(buf)) {
+    try {
+      const pdfParse = (await import('pdf-parse')).default;
+      const pdfData  = await pdfParse(buf);
+      const text     = pdfData.text || '';
+
+      const rawLines: string[] = text
+        .split('\n')
+        .map((l: string) => l.trim())
+        .filter((l: string) => l.length > 0);
+
+      if (rawLines.length < 2) return [];
+
+      const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
+      const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
+
+      const headers: string[] = rawLines[0]
+        .split(delimiter)
+        .map((h: string) => h.trim())
+        .filter(Boolean);
+
+      if (headers.length === 0) return [];
+
+      const rows: any[] = [];
+      for (let i = 1; i < rawLines.length; i++) {
+        const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
+        if (cells.every((c: string) => c === '')) continue;
+        const row: Record<string, string> = {};
+        headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
+        rows.push(row);
+      }
+      return rows;
+    } catch (err) {
+      console.error('[excel/history] pdf-parse failed:', err);
+      return [];
+    }
+  } else {
+    try {
+      const wb    = XLSX.read(buf, { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      return XLSX.utils.sheet_to_json(sheet) as any[];
+    } catch (err) {
+      console.error('[excel/history] XLSX.read failed:', err);
+      return [];
+    }
+  }
+}
+
 excelRouter.get('/history', async (c) => {
   try {
     const db = getDb();
     const uploads = await db.select({
-      id: excelUploads.id,
-      fileName: excelUploads.fileName,
-      fileSize: excelUploads.fileSize,
+      id:         excelUploads.id,
+      fileName:   excelUploads.fileName,
+      fileSize:   excelUploads.fileSize,
       uploadDate: excelUploads.uploadDate,
-      status: excelUploads.status,
+      status:     excelUploads.status,
     }).from(excelUploads).orderBy(desc(excelUploads.uploadDate));
 
-    // Enrich each upload with record count and detected format
-    const enriched = uploads.map(u => {
-      let recordCount = 0;
-      let detectedFormat: string = 'unknown';
-      try {
-        // Count linked sales transactions
-        const countResult = db.select({ id: salesTransactions.id })
-          .from(salesTransactions)
-          .where(eq(salesTransactions.uploadId, u.id))
-          .all();
-        recordCount = countResult.length;
+    // Enrich each upload with record count and detected format (PDF-aware)
+    const enriched = await Promise.all(
+      uploads.map(async (u) => {
+        let recordCount   = 0;
+        let detectedFormat: string = 'unknown';
+        try {
+          // Count linked sales transactions for this upload
+          const countResult = db.select({ id: salesTransactions.id })
+            .from(salesTransactions)
+            .where(eq(salesTransactions.uploadId, u.id))
+            .all();
+          recordCount = countResult.length;
 
-        // Detect format by reading the stored file headers
-        const full = db.select({ fileData: excelUploads.fileData }).from(excelUploads).where(eq(excelUploads.id, u.id)).get();
-        if (full?.fileData) {
-          const wb = XLSX.read(full.fileData, { type: 'buffer' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const raw = XLSX.utils.sheet_to_json(sheet) as any[];
-          if (raw.length > 0) {
-            const hdrs = getUniqueHeaders(raw);
-            const analysis = analyzeHeaders(hdrs);
-            detectedFormat = analysis.format;
-            if (recordCount === 0) recordCount = raw.length;
+          // Fetch raw file bytes and detect format (PDF or Excel)
+          const full = db.select({ fileData: excelUploads.fileData })
+            .from(excelUploads)
+            .where(eq(excelUploads.id, u.id))
+            .get();
+
+          if (full?.fileData) {
+            const raw = await extractRowsFromBuffer(full.fileData as Buffer);
+            if (raw.length > 0) {
+              const hdrs     = getUniqueHeaders(raw);
+              const analysis = analyzeHeaders(hdrs);
+              detectedFormat = analysis.format;
+              if (recordCount === 0) recordCount = raw.length;
+            }
+            // Fallback: if header-based analysis is ambiguous but sales transactions
+            // exist for this upload, it is definitively a party_report (sales data)
+            if (detectedFormat === 'unknown' && recordCount > 0) {
+              detectedFormat = 'party_report';
+            }
           }
-        }
-      } catch { /* ignore enrichment errors */ }
-      return { ...u, recordCount, detectedFormat };
-    });
+        } catch { /* ignore per-upload enrichment errors */ }
+        return { ...u, recordCount, detectedFormat };
+      })
+    );
 
     return c.json({ success: true, data: enriched });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to fetch history' }, 500);
   }
 });
+
 
 // ── GET /api/excel/:id/analytics ─────────────────────────────────────
 excelRouter.get('/:id/analytics', async (c) => {
