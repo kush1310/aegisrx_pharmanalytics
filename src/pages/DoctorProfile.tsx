@@ -27,6 +27,7 @@ import {
   IconBriefcase,
   IconId,
   IconMail,
+  IconPackage,
 } from '@tabler/icons-react';
 import type { Doctor } from '@/types';
 import { useAppStore } from '@/stores/appStore';
@@ -65,6 +66,11 @@ export default function DoctorProfile() {
   const [medAdding,           setMedAdding]           = useState(false);
   const [medRemoving,         setMedRemoving]         = useState<number | null>(null);
 
+  // Stocked products per linked pharmacy
+  // Map of pharmacyId -> array of { id, name } products stocked there
+  const [pharmacyStockedMap, setPharmacyStockedMap] = useState<Record<number, { id: number; name: string }[]>>({});
+  const [stockedLoading,     setStockedLoading]     = useState(false);
+
   /**
    * Fetches the full doctor record including linked pharmacies and prescribed medicines.
    * Redirects to /doctors on 404 or API error.
@@ -90,6 +96,36 @@ export default function DoctorProfile() {
   }, [id, navigate]);
 
   /**
+   * fetchStockedProducts
+   *
+   * For every pharmacy linked to this doctor, calls GET /api/products/by-pharmacy/:id
+   * and aggregates results into a Map keyed by pharmacyId.
+   * Invoked once the doctor record has loaded (triggered by pharmacies array change).
+   *
+   * @param linkedPharmacies - Array of pharmacy objects from the doctor record.
+   */
+  const fetchStockedProducts = useCallback(async (linkedPharmacies: { id: number; name: string }[]) => {
+    if (!linkedPharmacies || linkedPharmacies.length === 0) return;
+    setStockedLoading(true);
+    try {
+      const entries = await Promise.all(
+        linkedPharmacies.map(async (pharmacy) => {
+          try {
+            const result = await api.get<{ id: number; name: string }[]>(`/api/products/by-pharmacy/${pharmacy.id}`);
+            const products = (result.data as any[]) || [];
+            return [pharmacy.id, products] as [number, { id: number; name: string }[]];
+          } catch {
+            return [pharmacy.id, []] as [number, { id: number; name: string }[]];
+          }
+        })
+      );
+      setPharmacyStockedMap(Object.fromEntries(entries));
+    } finally {
+      setStockedLoading(false);
+    }
+  }, []);
+
+  /**
    * Fetches all products from the catalogue to populate the medicine dropdown.
    * Maps product records to { value: id, label: name } for the Select component.
    */
@@ -110,6 +146,13 @@ export default function DoctorProfile() {
     fetchPharmacies();
     fetchAllProducts();
   }, [id, fetchDoctor, fetchPharmacies, fetchAllProducts]);
+
+  // When the doctor record loads, fetch stocked products for each linked pharmacy
+  useEffect(() => {
+    if (!doctor) return;
+    const linked = (doctor as any).pharmacies || [];
+    fetchStockedProducts(linked);
+  }, [doctor, fetchStockedProducts]);
 
   const handleDelete = () => {
     if (!doctor) return;
@@ -182,12 +225,6 @@ export default function DoctorProfile() {
     });
   };
 
-  /**
-   * Links a product (medicine) to this doctor via POST /api/doctors/:id/medicines.
-   * Validates that a product is selected before sending the request.
-   * Shows 409 conflict message if medicine is already assigned.
-   * @validates selectedProductId — must be non-null
-   */
   const handleAddMedicine = async () => {
     if (!doctor || !selectedProductId) return;
     setMedAdding(true);
@@ -208,11 +245,6 @@ export default function DoctorProfile() {
     }
   };
 
-  /**
-   * Removes a product-doctor link via DELETE /api/doctors/:id/medicines/:productId.
-   * @param productId - The ID of the product to unlink from this doctor
-   * @edge-cases Sets medRemoving to the productId during the request for loading state.
-   */
   const handleRemoveMedicine = async (productId: number) => {
     if (!doctor) return;
     setMedRemoving(productId);
@@ -236,10 +268,7 @@ export default function DoctorProfile() {
     return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  // Pharmacies not yet linked to any doctor (available for linking)
   const availablePharmacies = pharmacies.filter(p => !p.doctorId);
-
-  // Products not yet assigned to this doctor (available in dropdown)
   const availableProducts = allProducts.filter(
     p => !prescribedMedicines.find(m => m.id === Number(p.value))
   );
@@ -274,7 +303,6 @@ export default function DoctorProfile() {
 
       <div className="mt-6">
 
-      {/* ── Profile Card ─────────────────────────────────────── */}
       <Card shadow="xs" radius="md" p="xl" withBorder className={styles.profileCard}>
         <Group justify="space-between" align="flex-start">
           <Group gap="lg">
@@ -320,7 +348,6 @@ export default function DoctorProfile() {
 
         <Divider my="lg" />
 
-        {/* Contact + Personal info grid */}
         <div className={styles.infoGrid}>
           <div className={styles.infoItem}>
             <IconPhone size={15} className={styles.infoIcon} />
@@ -396,7 +423,6 @@ export default function DoctorProfile() {
         </div>
       </Card>
 
-      {/* ── Tabs ─────────────────────────────────────────────── */}
       <Tabs defaultValue="pharmacies" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="pharmacies" leftSection={<IconBuildingStore size={15} />}>
@@ -411,9 +437,14 @@ export default function DoctorProfile() {
               {prescribedMedicines.length}
             </Badge>
           </Tabs.Tab>
+          <Tabs.Tab value="stocked" leftSection={<IconPackage size={15} />}>
+            Stocked Products
+            <Badge size="xs" variant="light" color="violet" ml="xs">
+              {Object.values(pharmacyStockedMap).reduce((sum, arr) => sum + arr.length, 0)}
+            </Badge>
+          </Tabs.Tab>
         </Tabs.List>
 
-        {/* ── Pharmacies Tab ──────────────────────────────────── */}
         <Tabs.Panel value="pharmacies" pt="lg">
           <Group justify="space-between" mb="md">
             <Text fw={700} size="sm">
@@ -536,6 +567,79 @@ export default function DoctorProfile() {
                 <Text size="xs" c="dimmed">Use the Add Medicine button to assign from the product catalogue.</Text>
               </Stack>
             </Paper>
+          )}
+        </Tabs.Panel>
+
+        {/* ── Stocked Products Tab ───────────────────────────────── */}
+        <Tabs.Panel value="stocked" pt="lg">
+          {stockedLoading ? (
+            <Paper p="xl" radius="md" withBorder className={styles.emptyState}>
+              <Stack align="center" gap="xs">
+                <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
+                <Text size="sm" c="dimmed">Loading stocked products...</Text>
+              </Stack>
+            </Paper>
+          ) : (doctor as any).pharmacies?.length === 0 ? (
+            <Paper p="xl" radius="md" withBorder className={styles.emptyState}>
+              <Stack align="center" gap="xs">
+                <IconPackage size={40} stroke={1} color="#94a3b8" />
+                <Text c="dimmed" size="sm">No pharmacies linked. Link a pharmacy first to view stocked products.</Text>
+              </Stack>
+            </Paper>
+          ) : (
+            <Stack gap="sm">
+              {((doctor as any).pharmacies || []).map((pharmacy: any) => {
+                const stocked = pharmacyStockedMap[pharmacy.id] || [];
+                return (
+                  <Paper key={pharmacy.id} shadow="xs" radius="md" p="md" withBorder>
+                    <Group justify="space-between" mb={stocked.length > 0 ? 'sm' : 0}>
+                      <Group gap="sm">
+                        <div className={styles.pharmIcon}>
+                          <IconBuildingStore size={16} strokeWidth={1.5} />
+                        </div>
+                        <div>
+                          <Text
+                            fw={600}
+                            size="sm"
+                            style={{ cursor: 'pointer', color: '#4f46e5' }}
+                            onClick={() => navigate(`/pharmacies/${pharmacy.id}`)}
+                          >
+                            {pharmacy.name}
+                          </Text>
+                          <Text size="xs" c="dimmed">{pharmacy.address}</Text>
+                        </div>
+                      </Group>
+                      <Badge
+                        size="sm"
+                        variant="light"
+                        color={stocked.length > 0 ? 'violet' : 'gray'}
+                        leftSection={<IconPackage size={11} />}
+                      >
+                        {stocked.length} product{stocked.length !== 1 ? 's' : ''}
+                      </Badge>
+                    </Group>
+
+                    {stocked.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {stocked.map((product) => (
+                          <span
+                            key={product.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-violet-50 text-violet-700 border border-violet-100"
+                          >
+                            <IconPill size={11} />
+                            {product.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {stocked.length === 0 && (
+                      <Text size="xs" c="dimmed" mt="xs">No products stocked at this pharmacy yet.</Text>
+                    )}
+                  </Paper>
+                );
+              })}
+            </Stack>
           )}
         </Tabs.Panel>
       </Tabs>

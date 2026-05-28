@@ -56,63 +56,103 @@ export default function UniversalUpload() {
     }
 
     setStep('analyzing');
-    const startTime = Date.now();
+    setDetectedModule('Scanning file structure...');
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      const bufferArray = Array.from(uint8Array);
+    /**
+     * MINIMUM_SCAN_MS: The user must see the scanning animation for at
+     * least 6 seconds regardless of how fast the server responds.
+     */
+    const MINIMUM_SCAN_MS = 6000;
+    const TICK_MS         = 80;           // Refresh every 80ms (≈12 fps smooth)
+    const totalTicks      = MINIMUM_SCAN_MS / TICK_MS;
+    const dropTime        = Date.now();
 
-      const result = await api.post('/api/upload/intelligent/upload', { buffer: bufferArray, fileName: file.name });
-      
-      if (!result.success) {
-        throw new Error(result.error);
+    // Mutable refs shared between the ticker closure and the async API path
+    let tickCount      = 0;
+    let resolvedLabel  = '';    // Populated once the API call returns
+    let resolvedTarget = 100;  // Default; overwritten with real confidence score
+
+    /**
+     * Smooth confidence ticker.
+     * Runs concurrently with the API call.
+     * Animates 0% → resolvedTarget% using ease-out quadratic over 6 seconds.
+     * While API is in-flight it shows contextual scan phrases.
+     * Once the API responds it shows the real format + confidence %.
+     */
+    const SCAN_PHRASES = [
+      'Scanning file structure...',
+      'Mapping column headers...',
+      'Validating row signatures...',
+      'Running heuristic matching...',
+      'Cross-referencing schema...',
+      'Finalizing format detection...',
+    ];
+
+    const ticker = setInterval(() => {
+      tickCount++;
+      const linearProgress = Math.min(tickCount / totalTicks, 1);
+      const eased          = 1 - Math.pow(1 - linearProgress, 2);  // ease-out quad
+      const displayPct     = Math.round(eased * resolvedTarget);
+
+      if (resolvedLabel) {
+        setDetectedModule(`${resolvedLabel} (${displayPct}% Confidence)`);
+      } else {
+        const phraseIdx = Math.min(
+          Math.floor(linearProgress * SCAN_PHRASES.length),
+          SCAN_PHRASES.length - 1
+        );
+        setDetectedModule(SCAN_PHRASES[phraseIdx]);
       }
 
-      const newUploadId = (result as any).uploadId;
-      setUploadId(newUploadId);
-      
-      const formatStr = (result as any).format;
-      const confidenceScore = (result as any).confidence ?? 0;
-      
+      if (tickCount >= totalTicks) clearInterval(ticker);
+    }, TICK_MS);
+
+    // API call runs in parallel with the ticker
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array  = new Uint8Array(arrayBuffer);
+      const bufferArray = Array.from(uint8Array);
+
+      const result = await api.post('/api/upload/intelligent/upload', {
+        buffer: bufferArray,
+        fileName: file.name
+      });
+
+      if (!result.success) throw new Error(result.error);
+
+      const newUploadId      = (result as any).uploadId;
+      const formatStr        = (result as any).format;
+      const confidenceScore  = (result as any).confidence ?? 0;
+
       const formatLabels: Record<string, string> = {
         party_report: 'Sales Report',
-        product: 'Product Master',
-        doctor: 'Doctor Master',
-        pharmacy: 'Pharmacy Master',
-        unknown: 'Unknown Format',
+        product:      'Product Master',
+        doctor:       'Doctor Master',
+        pharmacy:     'Pharmacy Master',
+        unknown:      'Unknown Format',
       };
-      
-      const formatLabel = formatLabels[formatStr] || formatLabels.unknown;
-      const targetConfidence = Math.round(confidenceScore * 100);
 
-      const elapsed = Date.now() - startTime;
-      const remainingTime = Math.max(1000, 6000 - elapsed);
+      // Publish results to ticker closure
+      resolvedLabel  = formatLabels[formatStr] || formatLabels.unknown;
+      resolvedTarget = Math.round(confidenceScore * 100);
 
-      // Increment confidence gradually over the remaining time
-      const totalSteps = 40;
-      const stepDuration = remainingTime / totalSteps;
-      let currentStep = 0;
+      setUploadId(newUploadId);
 
-      const interval = setInterval(() => {
-        currentStep++;
-        const progress = currentStep / totalSteps;
-        // Ease out quadratic
-        const easeProgress = 1 - Math.pow(1 - progress, 2);
-        const currentConfidence = Math.round(easeProgress * targetConfidence);
+      // Wait for the remainder of the 6-second minimum before transitioning
+      const elapsed   = Date.now() - dropTime;
+      const remaining = Math.max(0, MINIMUM_SCAN_MS - elapsed);
+      await new Promise<void>(resolve => setTimeout(resolve, remaining + 400));
 
-        setDetectedModule(`${formatLabel} (${currentConfidence}% Confidence)`);
-
-        if (currentStep >= totalSteps) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setStep('complete');
-          }, 300);
-        }
-      }, stepDuration);
+      setStep('complete');
 
     } catch (error: any) {
-      notifications.show({ title: 'Upload Failed', message: String(error?.message || error), color: 'red', icon: <IconX size={18} /> });
+      clearInterval(ticker);
+      notifications.show({
+        title:   'Upload Failed',
+        message: String(error?.message || error),
+        color:   'red',
+        icon:    <IconX size={18} />
+      });
       handleReset();
     } finally {
       setIsDragging(false);

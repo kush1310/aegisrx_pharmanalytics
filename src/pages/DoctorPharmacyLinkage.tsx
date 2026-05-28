@@ -505,7 +505,10 @@ export default function DoctorPharmacyLinkage() {
             { value: 'draft', label: 'Draft Pharmacies' },
           ]}
           value={filterType}
-          onChange={setFilterType}
+          onChange={(val) => {
+            setFilterType(val);
+            setSearchQuery('');  // Clear search when filter view changes
+          }}
           clearable
           size="md"
           w={200}
