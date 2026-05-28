@@ -12,12 +12,17 @@ interface AppState {
   doctors:              Doctor[];
   isLoadingDoctors:     boolean;
   hasLoadedDoctors:     boolean;
-  fetchDoctors:         () => Promise<void>;
+  doctorTotal:          number;
+  doctorPage:           number;
+  doctorTotalPages:     number;
+  fetchDoctors:         (page?: number, limit?: number, search?: string) => Promise<void>;
 
   pharmacies:           Pharmacy[];
   isLoadingPharmacies:  boolean;
-  hasLoadedPharmacies:  boolean;
-  fetchPharmacies:      () => Promise<void>;
+  pharmacyTotal:        number;
+  pharmacyPage:         number;
+  pharmacyTotalPages:   number;
+  fetchPharmacies:      (page?: number, limit?: number, search?: string) => Promise<void>;
 
   notifications:        Notification[];
   isLoadingNotifications: boolean;
@@ -45,9 +50,15 @@ export const useAppStore = create<AppState>((set) => ({
   doctors:                [],
   isLoadingDoctors:       false,
   hasLoadedDoctors:       false,
+  doctorTotal:            0,
+  doctorPage:             1,
+  doctorTotalPages:       1,
+
   pharmacies:             [],
   isLoadingPharmacies:    false,
-  hasLoadedPharmacies:    false,
+  pharmacyTotal:          0,
+  pharmacyPage:           1,
+  pharmacyTotalPages:     1,
   notifications:          [],
   isLoadingNotifications: false,
   hasLoadedNotifications: false,
@@ -70,20 +81,66 @@ export const useAppStore = create<AppState>((set) => ({
     finally { set({ isLoadingStats: false }); }
   },
 
-  fetchDoctors: async () => {
+  /**
+   * fetchDoctors
+   *
+   * Fetches a paginated page of doctors from the server-side paginated API.
+   * On success, updates doctors, doctorTotal, doctorPage, doctorTotalPages in state.
+   *
+   * @param page   - 1-based page number; defaults to 1.
+   * @param limit  - Records per page; defaults to 50, max 200.
+   * @param search - Optional search string for server-side LIKE filter on name/contact/specialization.
+   */
+  fetchDoctors: async (page = 1, limit = 50, search = '') => {
     set({ isLoadingDoctors: true });
     try {
-      const r = await api.get<Doctor[]>('/api/doctors');
-      if (r.success && r.data) set({ doctors: r.data, hasLoadedDoctors: true });
+      const params = new URLSearchParams();
+      params.set('page',  String(page));
+      params.set('limit', String(limit));
+      if (search) params.set('search', search);
+
+      const r = await api.get<any>(`/api/doctors?${params.toString()}`);
+      if (r.success) {
+        set({
+          doctors:          r.data ?? [],
+          doctorTotal:      (r as any).total      ?? 0,
+          doctorPage:       (r as any).page       ?? 1,
+          doctorTotalPages: (r as any).totalPages ?? 1,
+          hasLoadedDoctors: true,
+        });
+      }
     } catch (e) { console.error('fetchDoctors', e); }
     finally { set({ isLoadingDoctors: false }); }
   },
 
-  fetchPharmacies: async () => {
+  /**
+   * fetchPharmacies
+   *
+   * Fetches a paginated page of pharmacies from the server-side paginated API.
+   * Replaces the former "fetch all 2000+ rows" approach with a bounded 100-record page.
+   * On success, updates pharmacies, pharmacyTotal, pharmacyPage, pharmacyTotalPages in state.
+   *
+   * @param page   - 1-based page number; defaults to 1.
+   * @param limit  - Records per page; defaults to 100, max 500.
+   * @param search - Optional search string for server-side LIKE filter on name/owner/contact.
+   */
+  fetchPharmacies: async (page = 1, limit = 100, search = '') => {
     set({ isLoadingPharmacies: true });
     try {
-      const r = await api.get<Pharmacy[]>('/api/pharmacies');
-      if (r.success && r.data) set({ pharmacies: r.data, hasLoadedPharmacies: true });
+      const params = new URLSearchParams();
+      params.set('page',  String(page));
+      params.set('limit', String(limit));
+      if (search) params.set('search', search);
+
+      const r = await api.get<any>(`/api/pharmacies?${params.toString()}`);
+      if (r.success) {
+        set({
+          pharmacies:          r.data ?? [],
+          pharmacyTotal:       (r as any).total      ?? 0,
+          pharmacyPage:        (r as any).page       ?? 1,
+          pharmacyTotalPages:  (r as any).totalPages ?? 1,
+        });
+      }
     } catch (e) { console.error('fetchPharmacies', e); }
     finally { set({ isLoadingPharmacies: false }); }
   },

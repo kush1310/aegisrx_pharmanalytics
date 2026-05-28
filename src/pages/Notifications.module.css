@@ -1,35 +1,167 @@
-/* Notifications Page - Premium Design */
+/* Notifications Page — Premium Redesign */
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  animation: fadeIn 0.4s ease-out;
+/* ── Card entrance animation ─────────────────────────────────────── */
+@keyframes notifSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+.notifCardAnimate {
+  animation: notifSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.notificationCard {
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+/* ── Card base ───────────────────────────────────────────────────── */
+.notifCard {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: #ffffff;
+  overflow: hidden;
+  transition:
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.notificationCard:hover {
-  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
+.notifCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 32px -6px rgba(99, 102, 241, 0.14), 0 2px 8px -2px rgba(0, 0, 0, 0.06);
+  border-color: rgba(99, 102, 241, 0.18);
 }
 
-.unreadDot {
-  width: 8px;
-  height: 8px;
+/* ── Unread card — subtle gradient wash ─────────────────────────── */
+.notifCardUnread {
+  border-color: rgba(99, 102, 241, 0.18);
+  background: linear-gradient(
+    135deg,
+    rgba(238, 242, 255, 0.6) 0%,
+    rgba(255, 255, 255, 1) 55%
+  );
+  box-shadow: 0 2px 12px -4px rgba(99, 102, 241, 0.1);
+}
+
+.notifCardRead {
+  border-color: rgba(0, 0, 0, 0.05);
+  background: #ffffff;
+}
+
+/* ── Left accent stripe (unread indicator) ───────────────────────── */
+.accentStripe {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3.5px;
+  border-radius: 0 4px 4px 0;
+}
+
+.accentBirthday {
+  background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.accentAnniversary {
+  background: linear-gradient(180deg, #ec4899 0%, #f43f5e 100%);
+}
+
+/* ── Event icon bubble ───────────────────────────────────────────── */
+.eventIcon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 200ms ease;
+}
+
+.notifCard:hover .eventIcon {
+  transform: scale(1.06) rotate(-3deg);
+}
+
+.iconBirthday {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+  color: #6366f1;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.iconAnniversary {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.12) 0%, rgba(244, 63, 94, 0.12) 100%);
+  color: #ec4899;
+  box-shadow: 0 0 0 1px rgba(236, 72, 153, 0.15);
+}
+
+/* ── Content area ────────────────────────────────────────────────── */
+.notifContent {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Action buttons column ───────────────────────────────────────── */
+.notifActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.markReadBtn {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  height: 28px !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  transition: transform 150ms ease, background-color 150ms ease !important;
+}
+
+.markReadBtn:active {
+  transform: scale(0.95);
+}
+
+.deleteBtn {
+  opacity: 0.45;
+  transition: opacity 180ms ease, transform 150ms ease !important;
+}
+
+.notifCard:hover .deleteBtn {
+  opacity: 0.9;
+}
+
+.deleteBtn:hover {
+  opacity: 1 !important;
+  transform: scale(1.12);
+}
+
+.deleteBtn:active {
+  transform: scale(0.92) !important;
+}
+
+/* ── Empty state icon ────────────────────────────────────────────── */
+.emptyIcon {
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
-  background: #6366f1;
-  animation: pulse 2s infinite;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.06) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a5b4fc;
+  animation: floatBell 3s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+@keyframes floatBell {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
 }

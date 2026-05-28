@@ -100,15 +100,17 @@ excelRouter.get('/doctor-business', async (c) => {
       }
 
       if (docId !== null) {
-        // Mapped pharmacy: always add it to its mapped doctor's group
-        const group = doctorGroups.get(docId);
-        if (group) {
-          group.pharmacies.push({
-            pharmacyId:   pharmacy.id,
-            pharmacyName: pharmacy.name,
-            totalAmount:  pharmacyTotal,
-            medicines,
-          });
+        // Mapped pharmacy: only include it in the doctor's group if it has transactions
+        if (pharmacyTotal > 0) {
+          const group = doctorGroups.get(docId);
+          if (group) {
+            group.pharmacies.push({
+              pharmacyId:   pharmacy.id,
+              pharmacyName: pharmacy.name,
+              totalAmount:  pharmacyTotal,
+              medicines,
+            });
+          }
         }
       } else {
         // Unlinked pharmacy: only include it in the unlinked group if it has transactions

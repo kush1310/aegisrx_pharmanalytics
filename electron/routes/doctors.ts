@@ -37,48 +37,69 @@ const doctorUpdateSchema = doctorCreateSchema.partial().extend({
   specialization: z.string().min(1, 'Specialization is required').trim(),
 });
 
-// ── GET /api/doctors  — list all, with optional ?search= ──────────────
+// ── GET /api/doctors  — paginated list, optional ?page=&limit=&search= ──────
+/**
+ * listDoctors
+ *
+ * Returns a paginated, searchable list of doctors. Used by the Doctors page to
+ * avoid loading all 2000+ records into the renderer at once.
+ *
+ * @query page   {number} - 1-based page index. Default: 1.
+ * @query limit  {number} - Rows per page. Default: 50. Clamped to [1, 200].
+ * @query search {string} - Optional search string matched against name, contact, specialization.
+ * @returns { success, data: Doctor[], total, page, totalPages }
+ */
 doctorsRouter.get('/', async (c) => {
   try {
     const db = getDb();
-    const search = c.req.query('search');
 
-    let rows;
+    const rawPage   = parseInt(c.req.query('page')  || '1',  10);
+    const rawLimit  = parseInt(c.req.query('limit') || '50', 10);
+    const search    = (c.req.query('search') || '').trim();
+    const page      = isNaN(rawPage)  || rawPage  < 1 ? 1 : rawPage;
+    const limitSafe = isNaN(rawLimit) || rawLimit < 1 ? 50 : Math.min(rawLimit, 200);
+    const offset    = (page - 1) * limitSafe;
+
+    // Build base query with optional search filter
+    let allRows;
     if (search) {
-      rows = await db.select().from(doctors)
+      allRows = await db.select().from(doctors)
         .where(or(
-          like(doctors.name, `%${search}%`),
-          like(doctors.contact, `%${search}%`),
+          like(doctors.name,           `%${search}%`),
+          like(doctors.contact,        `%${search}%`),
           like(doctors.specialization, `%${search}%`)
         ))
         .orderBy(desc(doctors.createdAt));
     } else {
-      rows = await db.select().from(doctors).orderBy(desc(doctors.createdAt));
+      allRows = await db.select().from(doctors).orderBy(desc(doctors.createdAt));
     }
 
-    // Fetch all pharmacies to construct linked lists for each doctor
+    const total      = allRows.length;
+    const totalPages = Math.ceil(total / limitSafe);
+    const pageRows   = allRows.slice(offset, offset + limitSafe);
+
+    // Attach linked pharmacy lists only for the current page rows
     const allPharmacies = db.select().from(pharmacies).all();
     const pharmaciesByDoctorId = new Map<number, any[]>();
     for (const pharmacy of allPharmacies) {
       if (pharmacy.doctorId) {
-        if (!pharmaciesByDoctorId.has(pharmacy.doctorId)) {
-          pharmaciesByDoctorId.set(pharmacy.doctorId, []);
-        }
+        if (!pharmaciesByDoctorId.has(pharmacy.doctorId)) pharmaciesByDoctorId.set(pharmacy.doctorId, []);
         pharmaciesByDoctorId.get(pharmacy.doctorId)!.push(pharmacy);
       }
     }
 
-    const data = rows.map(doctor => ({
+    const data = pageRows.map(doctor => ({
       ...doctor,
       pharmacies: pharmaciesByDoctorId.get(doctor.id) || []
     }));
 
-    return c.json({ success: true, data });
+    return c.json({ success: true, data, total, page, totalPages });
   } catch (err) {
     console.error('[doctors/get]', err);
     return c.json({ success: false, error: 'Failed to fetch doctors' }, 500);
   }
 });
+
 
 // ── GET /api/doctors/linkage — all doctor-pharmacy linkages with business ──
 doctorsRouter.get('/linkage', async (c) => {

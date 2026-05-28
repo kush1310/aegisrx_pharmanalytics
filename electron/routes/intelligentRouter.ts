@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
+import fs from 'fs';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index';
 import { excelUploads } from '../db/schema';
@@ -264,6 +265,112 @@ intelligentRouter.post('/reprocess/:id', async (c) => {
   } catch (err: any) {
     console.error('[intelligentRouter/reprocess]', err);
     return c.json({ success: false, error: `Reprocess failed: ${err.message}` }, 500);
+  }
+});
+
+// ── POST /api/upload/intelligent/upload-by-path ─────────────────────────────
+/**
+ * uploadByPath
+ *
+ * Electron-native upload route that eliminates renderer-thread memory allocation.
+ * Accepts a filePath string (absolute OS path) and fileName from the Electron renderer.
+ * Reads the file buffer server-side using fs.readFileSync — zero JS Number objects
+ * are allocated on the renderer thread, keeping animations and skeleton loaders smooth
+ * even for files over 1.5 MB.
+ *
+ * Applies identical deduplication (MD5 hash), format detection, and background
+ * processing pipeline as the existing POST /upload route.
+ *
+ * @body  {string} filePath - Absolute path to the file on the local filesystem.
+ * @body  {string} fileName - Original file name (used for the upload record).
+ * @returns {success, uploadId, format, confidence} on success; 409 on duplicate; 500 on error.
+ * @validates - File existence, non-empty buffer, MD5 hash deduplication.
+ * @edge-cases - Returns 400 if filePath is missing. Returns 500 if fs.readFileSync fails.
+ */
+intelligentRouter.post('/upload-by-path', async (c) => {
+  try {
+    const body     = await c.req.json();
+    const filePath = body.filePath as string;
+    const fileName = body.fileName as string;
+
+    if (!filePath) {
+      return c.json({ success: false, error: 'filePath is required' }, 400);
+    }
+
+    // Read file buffer on the Node.js thread — never touches the renderer heap
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = fs.readFileSync(filePath);
+    } catch (readErr: any) {
+      console.error('[intelligentRouter/upload-by-path] fs.readFileSync failed:', readErr);
+      return c.json({ success: false, error: `Cannot read file: ${readErr.message}` }, 500);
+    }
+
+    const fileHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+    const fileSize = fileBuffer.length;
+    const db       = getDb();
+
+    // Deduplication — reject uploads whose MD5 hash already exists in the DB
+    const existing = db.select().from(excelUploads).where(eq(excelUploads.fileHash, fileHash)).get();
+    if (existing) {
+      return c.json({ success: false, error: 'This file has already been uploaded.' }, 409);
+    }
+
+    // Format detection — identical to the /upload route
+    let detectedFormat = 'unknown';
+    let confidence     = 0;
+
+    try {
+      let rawRows: any[] = [];
+
+      if (fileBuffer.length >= 4 && fileBuffer.slice(0, 4).toString('ascii') === '%PDF') {
+        // Use the same full content-aware parser used by /upload — NOT a naive line stub.
+        // The stub (rawLines.map(l => ({ Product: l }))) only ever produces ["Product"] as headers,
+        // which causes analyzeHeaders to always return format='product' (Product Master),
+        // regardless of actual file content. parsePdfToRows emits { Product, Free, FreeAmt, SaleQty, Amount }
+        // for product rows, giving party_report a score of 5 vs product's 2 — correct detection.
+        rawRows = await parsePdfToRows(fileBuffer);
+      } else {
+        const wb    = XLSX.read(fileBuffer, { type: 'buffer' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rawRows     = XLSX.utils.sheet_to_json(sheet) as any[];
+      }
+
+      if (rawRows.length > 0) {
+        const hdrs     = getUniqueHeaders(rawRows);
+        const analysis = analyzeHeaders(hdrs);
+        detectedFormat = analysis.format;
+        confidence     = analysis.confidence;
+      }
+    } catch (err) {
+      console.error('[intelligentRouter/upload-by-path] Format detection error:', err);
+    }
+
+    // Persist the raw file bytes and mark the record as PROCESSING
+    const upload = db.insert(excelUploads).values({
+      fileName,
+      fileHash,
+      fileSize,
+      fileData:   fileBuffer,
+      uploadDate: new Date().toISOString(),
+      status:     'PROCESSING',
+      format:     detectedFormat
+    }).returning().get();
+
+    // Offload full DB inserts to background task — non-blocking
+    processUploadInBackground(upload.id);
+
+    return c.json({
+      success:  true,
+      message:  'Upload received, processing in background.',
+      uploadId: upload.id,
+      format:   detectedFormat,
+      confidence
+    });
+
+  } catch (err: any) {
+    console.error('[intelligentRouter/upload-by-path]', err);
+    return c.json({ success: false, error: `Upload failed: ${err.message}` }, 500);
   }
 });
 

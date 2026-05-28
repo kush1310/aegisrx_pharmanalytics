@@ -147,6 +147,27 @@ export const notifications = sqliteTable('Notification', {
   createdAt:  text('createdAt').notNull().default(sql`(datetime('now'))`),
 });
 
+// ── DismissedNotification ─────────────────────────────────────────────────
+// Persistent tombstone table. A row here means the user explicitly dismissed
+// a specific event (birthday/anniversary for a specific entity on a specific date).
+// checkEventsLogic checks this table BEFORE inserting a new Notification row or
+// firing an OS push notification. Rows are never deleted automatically — they
+// accumulate to prevent any dismissed event from ever resurfacing after restart.
+//
+// Unique constraint on (entityId, entityType, eventType, eventDate) ensures one
+// tombstone per unique event instance (e.g., Doctor 42's Birthday on 2026-05-28).
+export const dismissedNotifications = sqliteTable('DismissedNotification', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  entityType: text('entityType').notNull(),
+  entityId:   integer('entityId').notNull(),
+  eventType:  text('eventType').notNull(),
+  eventDate:  text('eventDate').notNull(),   // YYYY-MM-DD — the specific day
+  dismissedAt:text('dismissedAt').notNull().default(sql`(datetime('now'))`),
+}, (t) => ({
+  uniq: unique().on(t.entityId, t.entityType, t.eventType, t.eventDate),
+}));
+
+
 // ── TypeScript inference helpers ───────────────────────────────────
 export type User            = typeof users.$inferSelect;
 export type NewUser         = typeof users.$inferInsert;

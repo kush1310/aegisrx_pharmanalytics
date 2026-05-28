@@ -195,12 +195,15 @@ app.whenReady().then(() => {
       });
     }
 
-    // Schedule checking events (birthday / anniversary) 5 minutes after machine has started
+    // Schedule checking events (birthday / anniversary).
+    // Dev: 10-second delay so the tombstone fix is immediately verifiable after hot-reload.
+    // Production: 5-minute delay so the system is fully ready before scanning.
+    const startupDelayMs = isDev ? 10000 : 300000;
     setTimeout(() => {
       checkEventsLogic();
       // Keep checking every 12 hours while the machine remains active
       setInterval(checkEventsLogic, 12 * 60 * 60 * 1000);
-    }, 300000); // 5 minutes delay (300,000 ms)
+    }, startupDelayMs);
 
     // Print exact notification for CLI start recognition
     originalLog('Launching AegisRx Application');

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, like, or, desc } from 'drizzle-orm';
+import { eq, like, or, desc, count } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb } from '../db/index';
 import { pharmacies, doctors, pharmacyProducts, products } from '../db/schema';
@@ -32,27 +32,60 @@ const pharmacyUpdateSchema = pharmacyCreateSchema.partial().extend({
 pharmaciesRouter.get('/', async (c) => {
   try {
     const db     = getDb();
+    const page   = Math.max(1, Number(c.req.query('page'))  || 1);
+    const limit  = Math.min(500, Math.max(1, Number(c.req.query('limit')) || 100));
+    const offset = (page - 1) * limit;
     const search = c.req.query('search')?.trim();
 
-    let rows;
-    if (search) {
-      rows = await db.select().from(pharmacies)
-        .where(or(
+    // Build WHERE condition — LIKE on name, ownerName, contact
+    const whereCondition = search
+      ? or(
           like(pharmacies.name,      `%${search}%`),
           like(pharmacies.ownerName, `%${search}%`),
           like(pharmacies.contact,   `%${search}%`),
-        ))
-        .orderBy(desc(pharmacies.createdAt));
-    } else {
-      rows = await db.select().from(pharmacies).orderBy(desc(pharmacies.createdAt));
-    }
+        )
+      : undefined;
 
-    return c.json({ success: true, data: rows });
+    // Total count for pagination header
+    const totalResult = db
+      .select({ value: count() })
+      .from(pharmacies)
+      .where(whereCondition)
+      .get();
+    const total = totalResult?.value ?? 0;
+
+    // Paginated rows — select only the 6 columns needed by the card grid
+    const rows = db
+      .select({
+        id:        pharmacies.id,
+        name:      pharmacies.name,
+        ownerName: pharmacies.ownerName,
+        contact:   pharmacies.contact,
+        address:   pharmacies.address,
+        licenseId: pharmacies.licenseId,
+        doctorId:  pharmacies.doctorId,
+        createdAt: pharmacies.createdAt,
+      })
+      .from(pharmacies)
+      .where(whereCondition)
+      .orderBy(desc(pharmacies.createdAt))
+      .limit(limit)
+      .offset(offset)
+      .all();
+
+    return c.json({
+      success:    true,
+      data:       rows,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (err) {
     console.error('[pharmacies/get]', err);
     return c.json({ success: false, error: 'Failed to fetch pharmacies' }, 500);
   }
 });
+
 
 // ── GET /api/pharmacies/by-doctor/:doctorId — pharmacies linked to a doctor ──
 pharmaciesRouter.get('/by-doctor/:doctorId', async (c) => {

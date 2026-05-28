@@ -109,14 +109,39 @@ export default function UniversalUpload() {
 
     // API call runs in parallel with the ticker
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array  = new Uint8Array(arrayBuffer);
-      const bufferArray = Array.from(uint8Array);
+      /**
+       * Prefer the Electron-native file.path transfer path.
+       *
+       * WHY: The previous approach — Array.from(new Uint8Array(arrayBuffer)) — converted a
+       * multi-MB file buffer into a plain JS Array of Numbers on the renderer main thread.
+       * For a 1.5 MB file this allocated ~1.5 million Number objects synchronously, blocking
+       * the event loop for 2–4 seconds and freezing every running animation and skeleton loader.
+       *
+       * The fix: send only the file.path string to the backend. The Hono server reads the
+       * file with fs.readFileSync on the Node.js thread — zero renderer allocation.
+       *
+       * Fallback: if file.path is not available (e.g., web context without Electron file access),
+       * fall back to the original ArrayBuffer → Array serialization path.
+       */
+      const filePath = (file as any).path as string | undefined;
 
-      const result = await api.post('/api/upload/intelligent/upload', {
-        buffer: bufferArray,
-        fileName: file.name
-      });
+      let result;
+      if (filePath) {
+        // Primary path — Electron desktop: send the OS file path, backend reads file directly
+        result = await api.post('/api/upload/intelligent/upload-by-path', {
+          filePath,
+          fileName: file.name,
+        });
+      } else {
+        // Fallback path — non-Electron or missing path: serialize buffer on renderer
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array  = new Uint8Array(arrayBuffer);
+        const bufferArray = Array.from(uint8Array);
+        result = await api.post('/api/upload/intelligent/upload', {
+          buffer:   bufferArray,
+          fileName: file.name,
+        });
+      }
 
       if (!result.success) throw new Error(result.error);
 

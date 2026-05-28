@@ -86,3 +86,77 @@
 .filterChip:hover {
   transform: translateY(-1px);
 }
+
+/* ── Card entrance animation ─────────────────────────────────────── */
+@keyframes doctorCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doctorCardAnimate {
+  animation: doctorCardIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Pagination controls ─────────────────────────────────────────── */
+.paginationBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px 0 8px;
+}
+
+.paginationCount {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: -0.01em;
+  min-width: 120px;
+  text-align: center;
+}
+
+.paginationBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.paginationBtn:hover:not(:disabled) {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.paginationBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.paginationBtn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+.emptyState {
+  border: 2px dashed rgba(148, 163, 184, 0.4) !important;
+  background: rgba(248, 250, 252, 0.5) !important;
+  text-align: center;
+}
