@@ -22,12 +22,19 @@ const doctorCreateSchema = z.object({
   birthDate:      z.string().nullable().optional(),
   isMarried:      z.boolean().optional().default(false),
   spouseName:     z.string().nullable().optional(),
+  spouseBirthDate:z.string().nullable().optional(),
   anniversary:    z.string().nullable().optional(),
   childrenCount:  z.number().int().min(0).max(20).optional().default(0),
   childrenNames:  z.string().nullable().optional(),
+  childrenBirthDates: z.string().nullable().optional(),
   email:          z.string().email('Invalid email format').nullable().optional().or(z.literal('')),
   registrationNo: z.string().nullable().optional(),
   experienceYrs:  z.number().int().min(0).max(60).nullable().optional(),
+  hospitalName:   z.string().nullable().optional(),
+  hospitalOpeningDate: z.string().nullable().optional(),
+  hospitalsCount: z.number().int().min(0).max(20).optional().default(0),
+  hospitalNames:  z.string().nullable().optional(),
+  hospitalOpeningDates: z.string().nullable().optional(),
 });
 
 const doctorUpdateSchema = doctorCreateSchema.partial().extend({
@@ -54,10 +61,10 @@ doctorsRouter.get('/', async (c) => {
     const db = getDb();
 
     const rawPage   = parseInt(c.req.query('page')  || '1',  10);
-    const rawLimit  = parseInt(c.req.query('limit') || '50', 10);
+    const rawLimit  = parseInt(c.req.query('limit') || '25', 10);
     const search    = (c.req.query('search') || '').trim();
     const page      = isNaN(rawPage)  || rawPage  < 1 ? 1 : rawPage;
-    const limitSafe = isNaN(rawLimit) || rawLimit < 1 ? 50 : Math.min(rawLimit, 200);
+    const limitSafe = isNaN(rawLimit) || rawLimit < 1 ? 25 : Math.min(rawLimit, 200);
     const offset    = (page - 1) * limitSafe;
 
     // Build base query with optional search filter
@@ -337,11 +344,18 @@ doctorsRouter.post('/', async (c) => {
       birthDate:      body.birthDate || null,
       isMarried:      !!body.isMarried,
       spouseName:     body.spouseName || null,
+      spouseBirthDate:body.spouseBirthDate || null,
       anniversary:    body.anniversary || null,
       childrenCount:  body.childrenCount || 0,
       childrenNames:  body.childrenNames || null,
+      childrenBirthDates: body.childrenBirthDates || null,
       qualification:  body.qualification,
       specialization: body.specialization,
+      hospitalName:   body.hospitalName || null,
+      hospitalOpeningDate: body.hospitalOpeningDate || null,
+      hospitalsCount: body.hospitalsCount || 0,
+      hospitalNames:  body.hospitalNames || null,
+      hospitalOpeningDates: body.hospitalOpeningDates || null,
       email:          body.email || null,
       registrationNo: body.registrationNo || null,
       experienceYrs:  body.experienceYrs || null,
@@ -376,11 +390,18 @@ doctorsRouter.put('/:id', async (c) => {
       birthDate:      body.birthDate || null,
       isMarried:      !!body.isMarried,
       spouseName:     body.spouseName || null,
+      spouseBirthDate:body.spouseBirthDate || null,
       anniversary:    body.anniversary || null,
       childrenCount:  body.childrenCount || 0,
       childrenNames:  body.childrenNames || null,
+      childrenBirthDates: body.childrenBirthDates || null,
       qualification:  body.qualification,
       specialization: body.specialization,
+      hospitalName:   body.hospitalName || null,
+      hospitalOpeningDate: body.hospitalOpeningDate || null,
+      hospitalsCount: body.hospitalsCount || 0,
+      hospitalNames:  body.hospitalNames || null,
+      hospitalOpeningDates: body.hospitalOpeningDates || null,
       email:          body.email || null,
       registrationNo: body.registrationNo || null,
       experienceYrs:  body.experienceYrs || null,

@@ -13,8 +13,9 @@ import {
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
-import { IconLock, IconMail, IconCalendar, IconSparkles } from '@tabler/icons-react';
+import { IconLock, IconMail, IconCalendar } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
+import Medical3DHeart from '../components/Medical3DHeart';
 import styles from './Login.module.css'; // sharing background styles from Login
 
 export default function SignUp() {
@@ -160,8 +161,10 @@ export default function SignUp() {
       <Paper className={styles.loginCard} shadow="xl" p="xl" radius="xl" style={{ maxWidth: '480px' }}>
         <Stack gap="md">
           <Box className={styles.logoContainer} style={{ padding: '10px 0' }}>
-            <div className={styles.logoIcon} style={{ width: '70px', height: '70px', borderRadius: '18px', marginBottom: '10px' }}>
-              <IconSparkles size={32} stroke={1.5} />
+            <div className={styles.logoIcon}>
+              <div style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+                <Medical3DHeart />
+              </div>
             </div>
             <Text className={styles.appTitle} style={{ fontSize: '1.5rem' }}>
               AegisRx Analytics

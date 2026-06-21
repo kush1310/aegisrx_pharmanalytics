@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import { getDb } from '../db/index';
 import { notifications, doctors, pharmacies, dismissedNotifications } from '../db/schema';
 import { Notification as ElectronNotification } from 'electron';
@@ -34,11 +34,38 @@ notificationsRouter.patch('/:id/read', async (c) => {
   }
 });
 
+// PATCH /api/notifications/:id/unread
+notificationsRouter.patch('/:id/unread', async (c) => {
+  try {
+    const db = getDb();
+    const id = Number(c.req.param('id'));
+    db.update(notifications).set({ isRead: false }).where(eq(notifications.id, id)).run();
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to mark as unread' }, 500);
+  }
+});
+
+// PATCH /api/notifications/:id/restore
+notificationsRouter.patch('/:id/restore', async (c) => {
+  try {
+    const db = getDb();
+    const id = Number(c.req.param('id'));
+    db.update(notifications).set({ isCleared: false }).where(eq(notifications.id, id)).run();
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to restore notification' }, 500);
+  }
+});
+
 // PATCH /api/notifications/read-all
 notificationsRouter.patch('/read-all', async (c) => {
   try {
     const db = getDb();
-    db.update(notifications).set({ isRead: true }).run();
+    db.update(notifications)
+      .set({ isRead: true })
+      .where(and(eq(notifications.isRead, false), eq(notifications.isCleared, false)))
+      .run();
     return c.json({ success: true });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to mark all as read' }, 500);
@@ -46,89 +73,33 @@ notificationsRouter.patch('/read-all', async (c) => {
 });
 
 /**
- * DELETE /api/notifications/:id — delete a single notification and write a permanent tombstone.
+ * DELETE /api/notifications/:id — flags a single notification as cleared.
  *
- * The tombstone written to DismissedNotification encodes the full event identity:
- * (entityId, entityType, eventType, eventDate). On future app startups, checkEventsLogic
- * checks this table FIRST and will NOT re-create this notification or re-fire the OS push.
- *
- * The INSERT OR IGNORE handles the edge case where a tombstone already exists (e.g.,
- * user deleted the same event twice via an old notification from a previous day).
- *
- * @param id - Notification row PK from route param.
- * @returns  - { success: true } on deletion; 404 if notification not found.
+ * Instead of deleting from the database, we update isCleared = true to allow
+ * the notification to be accessed in the "Recently Cleared" section.
  */
 notificationsRouter.delete('/:id', async (c) => {
   try {
     const db = getDb();
     const id = Number(c.req.param('id'));
-
-    // Fetch the notification row BEFORE deleting so we can extract its event identity
-    const row = db.select().from(notifications).where(eq(notifications.id, id)).get();
-    if (!row) return c.json({ success: false, error: 'Notification not found' }, 404);
-
-    // Write persistent tombstone — prevents re-fire after app restart
-    try {
-      db.insert(dismissedNotifications).values({
-        entityType: row.entityType,
-        entityId:   row.entityId,
-        eventType:  row.eventType,
-        eventDate:  row.eventDate,
-      }).run();
-    } catch (tombstoneErr: any) {
-      // INSERT OR IGNORE semantics: UNIQUE constraint violation means tombstone already exists.
-      // Safe to swallow — the tombstone is already protecting this event.
-      if (!tombstoneErr.message?.includes('UNIQUE')) {
-        console.error('[notifications/delete] Tombstone insert error:', tombstoneErr);
-      }
-    }
-
-    // Now delete the notification row from the UI list
-    db.delete(notifications).where(eq(notifications.id, id)).run();
+    db.update(notifications).set({ isCleared: true }).where(eq(notifications.id, id)).run();
     return c.json({ success: true });
   } catch (err) {
-    return c.json({ success: false, error: 'Failed to delete notification' }, 500);
+    return c.json({ success: false, error: 'Failed to clear notification' }, 500);
   }
 });
 
 /**
- * DELETE /api/notifications — clear all notifications and tombstone every one.
- *
- * Iterates all existing notification rows, writes a persistent tombstone for each,
- * then bulk-deletes the Notification table. After this operation, checkEventsLogic
- * will skip ALL of today's events even after app restart.
- *
- * @returns - { success: true, dismissed: number } with count of tombstones written.
+ * DELETE /api/notifications — flags all non-cleared notifications as cleared.
  */
 notificationsRouter.delete('/', async (c) => {
   try {
     const db = getDb();
-
-    // Fetch all current notification rows before deleting
-    const allRows = db.select().from(notifications).all();
-
-    // Write tombstones for every notification being cleared
-    let dismissedCount = 0;
-    for (const row of allRows) {
-      try {
-        db.insert(dismissedNotifications).values({
-          entityType: row.entityType,
-          entityId:   row.entityId,
-          eventType:  row.eventType,
-          eventDate:  row.eventDate,
-        }).run();
-        dismissedCount++;
-      } catch (tombstoneErr: any) {
-        // Swallow UNIQUE violations — tombstone already exists for this event
-        if (!tombstoneErr.message?.includes('UNIQUE')) {
-          console.error('[notifications/delete-all] Tombstone insert error:', tombstoneErr);
-        }
-      }
-    }
-
-    // Bulk delete all notification rows
-    db.delete(notifications).run();
-    return c.json({ success: true, dismissed: dismissedCount });
+    db.update(notifications)
+      .set({ isCleared: true })
+      .where(eq(notifications.isCleared, false))
+      .run();
+    return c.json({ success: true });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to clear notifications' }, 500);
   }
@@ -166,126 +137,225 @@ function processNotificationQueue() {
 }
 
 function queueDesktopNotification(title: string, message: string) {
-  const stripEmojis = (str: string): string => {
-    return str.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '').trim();
-  };
-
-  notificationQueue.push({
-    title:   stripEmojis(title),
-    message: stripEmojis(message)
-  });
-  processNotificationQueue();
+  // Desktop push notifications disabled as per user request. Keep only in-app notifications.
 }
 
 /**
- * checkEventsLogic — scheduled birthday/anniversary event checker.
+ * checkEventsLogic
  *
- * Runs 5 minutes after app startup and every 12 hours thereafter (via main.ts).
- * Also available as POST /api/notifications/check-events for manual trigger from UI.
+ * Scans all doctor and pharmacy records to detect upcoming birth dates or anniversaries
+ * within a 3-day window (today, tomorrow, and day after tomorrow) and generates corresponding
+ * notification items. Before performing checks, it deletes all existing unread and uncleared
+ * notification rows for these dates to allow complete dynamic regeneration with fresh DB state.
  *
- * Deduplication strategy (three-layer, innermost wins):
- *
- * Layer 1 — DismissedNotification DB tombstone (PERSISTENT — survives app restart):
- *   If the user has ever deleted a notification for this specific event on this date,
- *   a tombstone row exists. Skip the event entirely — no DB insert, no OS push.
- *   This is the fix for the bug where dismissed notifications reappeared after restart.
- *
- * Layer 2 — Notification DB row existence check:
- *   If a Notification row already exists in the DB for this event+entity+date,
- *   skip the insert (prevents duplicate rows across multiple checkEventsLogic calls
- *   within the same app session without requiring a restart).
- *
- * Layer 3 — In-memory sessionQueue guard:
- *   Prevents the OS push from firing more than once within a single app session
- *   (e.g., if check-events is called manually after the scheduled check).
- *   Resets on app restart — intentionally, because Layer 1 now handles cross-session safety.
+ * @param  None
+ * @returns {Promise<void>} - Resolves once notifications are computed and persisted.
+ * @validates - Dismissed tombstones are verified against the DismissedNotification table.
+ *            - Events are only created for valid date formats.
+ * @redirects - None.
+ * @edge-cases - Preserves notifications that are already marked as read or cleared to avoid duplicate delivery.
+ *             - Dismissed notifications are skipped using a tombstone lookup.
  */
+function formatLocalYYYYMMDD(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 const sessionFiredCache = new Set<string>();
+
+/**
+ * getDocDisplayName
+ *
+ * Formats doctor name cleanly without duplicate prefixes. If name already starts
+ * with Dr. or Dr. (case insensitive), returns it unchanged. Otherwise prepends Dr.
+ *
+ * @param  {string} name  - Doctor's raw name from database.
+ * @returns {string}      - Formatted display name.
+ */
+function getDocDisplayName(name: string): string {
+  const trimmed = name.trim();
+  if (/^dr\.?\s+/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `Dr. ${trimmed}`;
+}
 
 export async function checkEventsLogic() {
   try {
     const db = getDb();
     const today = new Date();
-    const todayMD  = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = formatLocalYYYYMMDD(today);
+    const todayMD  = todayStr.substring(5, 10);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const tomorrowStr = formatLocalYYYYMMDD(tomorrow);
+    const tomorrowMD  = tomorrowStr.substring(5, 10);
+
+    const dayAfter = new Date(today);
+    dayAfter.setDate(today.getDate() + 2);
+    const dayAfterStr = formatLocalYYYYMMDD(dayAfter);
+    const dayAfterMD  = dayAfterStr.substring(5, 10);
+
+    // Delete existing unread and uncleared notifications for today, tomorrow, and day after tomorrow
+    // to allow complete dynamic regeneration from updated doctor/pharmacy records.
+    db.delete(notifications)
+      .where(
+        and(
+          eq(notifications.isRead, false),
+          eq(notifications.isCleared, false),
+          inArray(notifications.eventDate, [todayStr, tomorrowStr, dayAfterStr])
+        )
+      )
+      .run();
+
+    // Reset the session cache for these dates to allow dynamic updates
+    sessionFiredCache.clear();
 
     const allDoctors    = db.select().from(doctors).all();
     const allPharmacies = db.select().from(pharmacies).all();
 
-    // Pre-load all existing notification rows for today into a Set for O(1) lookup
-    const existingTodayRows = db.select().from(notifications).all()
-      .filter(n => n.eventDate?.startsWith(todayStr));
-    const existingSet = new Set(existingTodayRows.map(n => `${n.entityId}-${n.entityType}-${n.eventType}`));
+    // Pre-load all existing notification rows for today, tomorrow, and day after tomorrow into a Set for O(1) lookup
+    const existingRows = db.select().from(notifications).all()
+      .filter(n => n.eventDate === todayStr || n.eventDate === tomorrowStr || n.eventDate === dayAfterStr);
+    const existingSet = new Set(existingRows.map(n => `${n.entityId}-${n.entityType}-${n.eventType}-${n.eventDate}`));
 
-    // Pre-load all dismissed tombstones for today into a Set for O(1) lookup
+    // Pre-load all dismissed tombstones for today, tomorrow, and day after tomorrow into a Set for O(1) lookup
     const dismissedRows = db.select().from(dismissedNotifications).all()
-      .filter(d => d.eventDate === todayStr);
-    const dismissedSet = new Set(dismissedRows.map(d => `${d.entityId}-${d.entityType}-${d.eventType}`));
+      .filter(d => d.eventDate === todayStr || d.eventDate === tomorrowStr || d.eventDate === dayAfterStr);
+    const dismissedSet = new Set(dismissedRows.map(d => `${d.entityId}-${d.entityType}-${d.eventType}-${d.eventDate}`));
 
     const stripEmojis = (str: string): string =>
       str.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '').trim();
 
+    const pushToday: { title: string; message: string }[] = [];
+    const pushTomorrow: { title: string; message: string }[] = [];
+
     const checkAndCreate = (
       type:      'DOCTOR' | 'PHARMACY_OWNER',
       entityId:  number,
-      eventType: 'BIRTHDAY' | 'ANNIVERSARY',
+      eventType: string,
       dateStr:   string | null | undefined,
-      title:     string,
-      message:   string
+      titleTemplate: (timeLabel: string) => string,
+      messageTemplate: (timeLabel: string) => string
     ) => {
       if (!dateStr || typeof dateStr !== 'string' || dateStr.length < 10) return;
       const dateMD = dateStr.substring(5, 10);
-      if (dateMD !== todayMD) return;
 
-      const eventKey = `${entityId}-${type}-${eventType}`;
+      let targetStr = '';
+      let timeLabel = '';
+      let isPushTarget = false;
 
-      // ── Layer 1: Persistent tombstone check ──────────────────────────────
-      // If the user dismissed this exact event today (at any point, even before this app session),
-      // skip it entirely. No notification insert, no OS push. Full stop.
+      if (dateMD === todayMD) {
+        targetStr = todayStr;
+        timeLabel = 'Today';
+        isPushTarget = true;
+      } else if (dateMD === tomorrowMD) {
+        targetStr = tomorrowStr;
+        timeLabel = 'Tomorrow';
+        isPushTarget = true;
+      } else if (dateMD === dayAfterMD) {
+        targetStr = dayAfterStr;
+        timeLabel = 'Day After Tomorrow';
+        isPushTarget = false;
+      } else {
+        return;
+      }
+
+      const eventKey = `${entityId}-${type}-${eventType}-${targetStr}`;
+
+      // Layer 1: Tombstone check
       if (dismissedSet.has(eventKey)) return;
 
-      // ── Layer 2: DB row existence check ──────────────────────────────────
-      // If a Notification row is already in the DB for this event today, skip insert.
-      // The OS push is still guarded by Layer 3 below.
+      // Layer 2: DB row existence check
       const rowExists = existingSet.has(eventKey);
 
-      // ── Layer 3: In-session OS push guard ────────────────────────────────
-      // Prevents duplicate OS pushes within the same app session (e.g., manual re-check).
+      // Layer 3: In-session OS push guard
       const alreadyFiredThisSession = sessionFiredCache.has(eventKey);
       sessionFiredCache.add(eventKey);
 
-      const cleanTitle   = stripEmojis(title);
-      const cleanMessage = stripEmojis(message);
+      const cleanTitle   = stripEmojis(titleTemplate(timeLabel));
+      const cleanMessage = stripEmojis(messageTemplate(timeLabel));
 
       if (!rowExists) {
         db.insert(notifications).values({
           entityType: type,
           entityId,
           eventType,
-          eventDate:  todayStr,
+          eventDate:  targetStr,
           title:      cleanTitle,
           message:    cleanMessage,
           isRead:     false,
+          isCleared:  false,
         }).run();
       }
 
-      // Only fire OS push if not already sent this session
-      if (!alreadyFiredThisSession) {
-        queueDesktopNotification(cleanTitle, cleanMessage);
+      // Collect push notifications
+      if (isPushTarget && !alreadyFiredThisSession) {
+        const item = { title: cleanTitle, message: cleanMessage };
+        if (targetStr === todayStr) {
+          pushToday.push(item);
+        } else {
+          pushTomorrow.push(item);
+        }
       }
     };
 
+    // Check Doctors
     for (const doc of allDoctors) {
-      checkAndCreate('DOCTOR', doc.id, 'BIRTHDAY',    doc.birthDate,
-        `Dr. ${doc.name}'s Birthday Today!`,    `Specialist: ${doc.specialization}. Contact: ${doc.contact}`);
+      // 1. Doctor's Birthday
+      checkAndCreate('DOCTOR', doc.id, 'BIRTHDAY', doc.birthDate,
+        (time) => `${getDocDisplayName(doc.name)}'s Birthday ${time}!`,
+        () => `Specialist: ${doc.specialization}. Contact: ${doc.contact}`);
+
+      // 2. Doctor's Anniversary
       checkAndCreate('DOCTOR', doc.id, 'ANNIVERSARY', doc.anniversary,
-        `Dr. ${doc.name}'s Anniversary Today!`, `Send best wishes to Dr. ${doc.name}`);
+        (time) => `${getDocDisplayName(doc.name)}'s Anniversary ${time}!`,
+        () => `Send best wishes to ${getDocDisplayName(doc.name)}`);
+
+      // 3. Spouse's Birthday
+      if (doc.isMarried && doc.spouseName) {
+        checkAndCreate('DOCTOR', doc.id, 'SPOUSE_BIRTHDAY', (doc as any).spouseBirthDate,
+          (time) => `${getDocDisplayName(doc.name)}'s Spouse (${doc.spouseName})'s Birthday ${time}!`,
+          () => `Send best wishes to ${doc.spouseName}`);
+      }
+
+      // 4. Children's Birthdays
+      if (doc.childrenNames) {
+        try {
+          const parsed = JSON.parse(doc.childrenNames);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((child, index) => {
+              if (child && typeof child === 'object' && child.name && child.birthDate) {
+                checkAndCreate('DOCTOR', doc.id, `CHILD_BIRTHDAY_${index}`, child.birthDate,
+                  (time) => `${getDocDisplayName(doc.name)}'s Child (${child.name})'s Birthday ${time}!`,
+                  () => `Send best wishes to ${child.name}`);
+              }
+            });
+          }
+        } catch {
+          // Backward compatibility: old string-only arrays have no DOB info, so do nothing.
+        }
+      }
     }
 
+    // Check Pharmacies
     for (const ph of allPharmacies) {
       checkAndCreate('PHARMACY_OWNER', ph.id, 'BIRTHDAY', ph.ownerBirthDate,
-        `${ph.ownerName}'s Birthday Today!`, `Owner of ${ph.name}. Contact: ${ph.contact}`);
+        (time) => `${ph.ownerName}'s Birthday ${time}!`,
+        () => `Owner of ${ph.name}. Contact: ${ph.contact}`);
     }
+
+    // Enqueue pushes: Today's first, then Tomorrow's
+    for (const p of pushToday) {
+      queueDesktopNotification(p.title, p.message);
+    }
+    for (const p of pushTomorrow) {
+      queueDesktopNotification(p.title, p.message);
+    }
+
   } catch (err) {
     console.error('[notifications/check-events background worker]', err);
   }

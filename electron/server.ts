@@ -6,11 +6,12 @@ import { auth, JWT_SECRET, JWT_ISSUER } from './routes/auth';
 import { doctorsRouter } from './routes/doctors';
 import { pharmaciesRouter } from './routes/pharmacies';
 import { productsRouter } from './routes/products';
-import { notificationsRouter, checkEventsLogic } from './routes/notifications';
+import { notificationsRouter } from './routes/notifications';
 import { intelligentRouter } from './routes/intelligentRouter';
 import { statsRouter } from './routes/stats';
 import { searchRouter } from './routes/search';
 import { excelRouter } from './routes/excel';
+import { settingsRouter } from './routes/settings';
 
 export const API_PORT = 3001;
 
@@ -34,9 +35,9 @@ async function authMiddleware(c: any, next: any) {
 export function createServer() {
   const app = new Hono();
 
-  // CORS — allow renderer (localhost:5173) and packaged app
+  // CORS — allow renderer (localhost:5173, localhost:5174) and packaged app
   app.use('*', cors({
-    origin: ['http://localhost:5173', 'http://localhost:3001', 'file://'],
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3001', 'file://'],
     allowHeaders: ['Authorization', 'Content-Type'],
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }));
@@ -58,6 +59,7 @@ export function createServer() {
   api.route('/stats', statsRouter);
   api.route('/search', searchRouter);
   api.route('/excel', excelRouter);
+  api.route('/settings', settingsRouter);
 
   app.route('/api', api);
 
@@ -72,13 +74,5 @@ export function startServer(): void {
   const app = createServer();
   serve({ fetch: app.fetch, port: API_PORT }, (info) => {
     console.log(`[SuratPharma API] Listening on http://localhost:${info.port}`);
-    
-    // Background Service: Automated Background Notifications every 60 minutes
-    setInterval(() => {
-      checkEventsLogic();
-    }, 60 * 60 * 1000);
-
-    // Run once on startup
-    checkEventsLogic();
   });
 }

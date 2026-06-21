@@ -88,11 +88,17 @@ const initialFormData: DoctorFormData = {
   birthDate: null,
   isMarried: false,
   spouseName: '',
+  spouseBirthDate: null,
   anniversary: null,
   childrenCount: 0,
-  childrenNames: [],
+  children: [],
   qualification: '',
   specialization: '',
+  hospitalName: '',
+  hospitalOpeningDate: null,
+  hospitalsCount: 0,
+  hospitalNames: [],
+  hospitalOpeningDates: [],
   registrationNo: '',
   email: '',
   experienceYrs: 0
@@ -121,20 +127,51 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
           birthDate: editData.birthDate ? new Date(editData.birthDate) : null,
           isMarried: editData.isMarried || false,
           spouseName: editData.spouseName || '',
+          spouseBirthDate: (editData as any).spouseBirthDate ? new Date((editData as any).spouseBirthDate) : null,
           anniversary: editData.anniversary ? new Date(editData.anniversary) : null,
           childrenCount: editData.childrenCount || 0,
-          childrenNames: (() => {
+          children: (() => {
             if (!editData.childrenNames) return [];
-            if (Array.isArray(editData.childrenNames)) return editData.childrenNames;
             try {
               const parsed = JSON.parse(editData.childrenNames);
-              return Array.isArray(parsed) ? parsed : [];
+              if (Array.isArray(parsed)) {
+                return parsed.map(c => {
+                  if (typeof c === 'string') return { name: c, birthDate: null };
+                  return {
+                    name: c.name || '',
+                    birthDate: c.birthDate ? new Date(c.birthDate) : null
+                  };
+                });
+              }
             } catch {
-              return [editData.childrenNames];
+              return editData.childrenNames.split(',').map(n => ({ name: n.trim(), birthDate: null }));
             }
+            return [];
           })(),
           qualification: editData.qualification || '',
           specialization: editData.specialization || '',
+          hospitalName: editData.hospitalName || '',
+          hospitalOpeningDate: editData.hospitalOpeningDate ? new Date(editData.hospitalOpeningDate) : null,
+          hospitalsCount: editData.hospitalsCount || 0,
+          hospitalNames: (() => {
+            if (!editData.hospitalNames) return [];
+            if (Array.isArray(editData.hospitalNames)) return editData.hospitalNames;
+            try {
+              const parsed = JSON.parse(editData.hospitalNames);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [editData.hospitalNames];
+            }
+          })(),
+          hospitalOpeningDates: (() => {
+            if (!editData.hospitalOpeningDates) return [];
+            try {
+              const parsed = JSON.parse(editData.hospitalOpeningDates);
+              return Array.isArray(parsed) ? parsed.map(d => d ? new Date(d) : null) : [];
+            } catch {
+              return [];
+            }
+          })(),
           registrationNo: editData.registrationNo || '',
           email: editData.email || '',
           experienceYrs: editData.experienceYrs || 0
@@ -221,13 +258,27 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
           : null,
         isMarried: formData.isMarried,
         spouseName: formData.spouseName || null,
+        spouseBirthDate: formData.spouseBirthDate 
+          ? (typeof formData.spouseBirthDate === 'string' ? new Date(formData.spouseBirthDate).toISOString() : (formData.spouseBirthDate as Date).toISOString())
+          : null,
         anniversary: formData.anniversary 
           ? (typeof formData.anniversary === 'string' ? new Date(formData.anniversary).toISOString() : (formData.anniversary as Date).toISOString())
           : null,
         childrenCount: formData.childrenCount,
-        childrenNames: formData.childrenNames.length > 0 ? JSON.stringify(formData.childrenNames) : null,
+        childrenNames: formData.children.length > 0 
+          ? JSON.stringify(formData.children.map(c => ({ name: c.name, birthDate: c.birthDate ? (typeof c.birthDate === 'string' ? new Date(c.birthDate).toISOString() : (c.birthDate as Date).toISOString()) : null })))
+          : null,
         qualification: formData.qualification,
         specialization: formData.specialization,
+        hospitalName: formData.hospitalName || null,
+        hospitalOpeningDate: formData.hospitalOpeningDate 
+          ? (typeof formData.hospitalOpeningDate === 'string' ? new Date(formData.hospitalOpeningDate).toISOString() : (formData.hospitalOpeningDate as Date).toISOString())
+          : null,
+        hospitalsCount: formData.hospitalsCount,
+        hospitalNames: formData.hospitalNames.length > 0 ? JSON.stringify(formData.hospitalNames) : null,
+        hospitalOpeningDates: formData.hospitalOpeningDates.length > 0
+          ? JSON.stringify(formData.hospitalOpeningDates.map(d => d ? (typeof d === 'string' ? new Date(d).toISOString() : d.toISOString()) : null))
+          : null,
         registrationNo: formData.registrationNo,
         experienceYrs: formData.experienceYrs
       };
@@ -260,25 +311,64 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
     }
   };
 
-  const updateChildName = (index: number, value: string) => {
-    const newNames = [...formData.childrenNames];
+  const updateChildField = (index: number, key: 'name' | 'birthDate', value: any) => {
+    const updated = [...formData.children];
+    if (updated[index]) {
+      updated[index] = { ...updated[index], [key]: value };
+      updateField('children', updated);
+    }
+  };
+
+  const updateHospitalFieldName = (index: number, value: string) => {
+    const newNames = [...formData.hospitalNames];
     newNames[index] = value;
-    updateField('childrenNames', newNames);
+    updateField('hospitalNames', newNames);
+  };
+
+  const updateHospitalFieldOpeningDate = (index: number, value: Date | null) => {
+    const newDates = [...formData.hospitalOpeningDates];
+    newDates[index] = value;
+    updateField('hospitalOpeningDates', newDates);
   };
 
   useEffect(() => {
-    // Adjust children names array when count changes
-    const currentLength = formData.childrenNames.length;
+    // Adjust children array when count changes
+    const currentLength = formData.children.length;
     if (formData.childrenCount > currentLength) {
-      const newNames = [...formData.childrenNames];
+      const newChildren = [...formData.children];
       for (let i = currentLength; i < formData.childrenCount; i++) {
-        newNames.push('');
+        newChildren.push({ name: '', birthDate: null });
       }
-      updateField('childrenNames', newNames);
+      updateField('children', newChildren);
     } else if (formData.childrenCount < currentLength) {
-      updateField('childrenNames', formData.childrenNames.slice(0, formData.childrenCount));
+      updateField('children', formData.children.slice(0, formData.childrenCount));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.childrenCount]);
+
+  useEffect(() => {
+    // Adjust hospital names and opening dates arrays when count changes
+    const currentLength = formData.hospitalNames.length;
+    if (formData.hospitalsCount > currentLength) {
+      const newNames = [...formData.hospitalNames];
+      const newDates = [...formData.hospitalOpeningDates];
+      for (let i = currentLength; i < formData.hospitalsCount; i++) {
+        newNames.push('');
+        newDates.push(null);
+      }
+      setFormData(prev => ({
+        ...prev,
+        hospitalNames: newNames,
+        hospitalOpeningDates: newDates
+      }));
+    } else if (formData.hospitalsCount < currentLength) {
+      setFormData(prev => ({
+        ...prev,
+        hospitalNames: prev.hospitalNames.slice(0, formData.hospitalsCount),
+        hospitalOpeningDates: prev.hospitalOpeningDates.slice(0, formData.hospitalsCount)
+      }));
+    }
+  }, [formData.hospitalsCount]);
 
   return (
     <Modal
@@ -384,12 +474,20 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
                   >
                     <Text size="sm" c="dimmed" mb="sm">Marriage Details</Text>
                     <Stack gap="md">
-                      <SimpleGrid cols={2}>
+                      <SimpleGrid cols={3}>
                         <TextInput
                           label="Spouse Name"
                           placeholder="Spouse's full name"
                           value={formData.spouseName}
                           onChange={(e) => updateField('spouseName', e.currentTarget.value)}
+                        />
+                        <DateInput
+                          label="Spouse's Birthday"
+                          placeholder="Select date"
+                          value={formData.spouseBirthDate}
+                          onChange={(date) => updateField('spouseBirthDate', date as Date | null)}
+                          maxDate={new Date()}
+                          clearable
                         />
                         <DateInput
                           label="Anniversary Date"
@@ -408,15 +506,27 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
                         onChange={(value) => updateField('childrenCount', Number(value) || 0)}
                       />
                       {formData.childrenCount > 0 && (
-                        <Stack gap="xs">
-                          {[...Array(formData.childrenCount)].map((_, index) => (
-                            <TextInput
-                              key={index}
-                              label={`Child ${index + 1} Name`}
-                              placeholder={`Enter child ${index + 1}'s name`}
-                              value={formData.childrenNames[index] || ''}
-                              onChange={(e) => updateChildName(index, e.currentTarget.value)}
-                            />
+                        <Stack gap="md">
+                          {formData.children.map((child, index) => (
+                            <div key={index} className="border border-slate-200/50 p-3 rounded-lg bg-slate-50/50">
+                              <Text size="xs" fw={700} c="indigo" mb="xs">Child {index + 1}</Text>
+                              <SimpleGrid cols={2} spacing="sm">
+                                <TextInput
+                                  label="Child Name"
+                                  placeholder="Enter child's name"
+                                  value={child.name}
+                                  onChange={(e) => updateChildField(index, 'name', e.currentTarget.value)}
+                                />
+                                <DateInput
+                                  label="Date of Birth"
+                                  placeholder="Select date"
+                                  value={child.birthDate}
+                                  onChange={(date) => updateChildField(index, 'birthDate', date as Date | null)}
+                                  maxDate={new Date()}
+                                  clearable
+                                />
+                              </SimpleGrid>
+                            </div>
                           ))}
                         </Stack>
                       )}
@@ -498,6 +608,59 @@ export default function DoctorWizard({ opened, onClose, onSuccess, editData }: D
                       ))}
                     </Group>
                   </Chip.Group>
+                </div>
+
+                <div style={{ marginTop: '10px' }}>
+                  <Text size="sm" fw={700} c="indigo" mb="xs">Hospital Details</Text>
+                  <SimpleGrid cols={2}>
+                    <TextInput
+                      label="Primary Hospital Name"
+                      placeholder="Enter hospital name"
+                      value={formData.hospitalName}
+                      onChange={(e) => updateField('hospitalName', e.currentTarget.value)}
+                    />
+                    <DateInput
+                      label="Primary Hospital Opening Date"
+                      placeholder="Select opening date"
+                      value={formData.hospitalOpeningDate}
+                      onChange={(date) => updateField('hospitalOpeningDate', date as Date | null)}
+                      maxDate={new Date()}
+                      clearable
+                    />
+                  </SimpleGrid>
+                </div>
+
+                <div style={{ marginTop: '15px' }}>
+                  <Text size="sm" fw={700} c="indigo" mb="xs">Additional Associated Hospitals</Text>
+                  <NumberInput
+                    label="Number of Associated Hospitals"
+                    min={0}
+                    max={10}
+                    value={formData.hospitalsCount}
+                    onChange={(value) => updateField('hospitalsCount', Number(value) || 0)}
+                  />
+                  {formData.hospitalsCount > 0 && (
+                    <Stack gap="xs" mt="xs">
+                      {[...Array(formData.hospitalsCount)].map((_, index) => (
+                        <SimpleGrid cols={2} key={index}>
+                          <TextInput
+                            label={`Hospital ${index + 1} Name`}
+                            placeholder={`Enter hospital ${index + 1}'s name`}
+                            value={formData.hospitalNames[index] || ''}
+                            onChange={(e) => updateHospitalFieldName(index, e.currentTarget.value)}
+                          />
+                          <DateInput
+                            label={`Hospital ${index + 1} Opening Date`}
+                            placeholder="Select date"
+                            value={formData.hospitalOpeningDates[index] || null}
+                            onChange={(date) => updateHospitalFieldOpeningDate(index, date as Date | null)}
+                            maxDate={new Date()}
+                            clearable
+                          />
+                        </SimpleGrid>
+                      ))}
+                    </Stack>
+                  )}
                 </div>
               </Stack>
             </motion.div>

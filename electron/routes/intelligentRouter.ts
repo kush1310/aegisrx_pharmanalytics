@@ -10,134 +10,10 @@ import { getUniqueHeaders, analyzeHeaders } from './excel';
 
 const intelligentRouter = new Hono();
 
-/**
- * isPdfBuffer
- *
- * Checks the first four bytes of a buffer for the PDF magic number (%PDF).
- * More reliable than trusting the client-supplied file extension.
- *
- * @param  {Buffer} buf - Raw file bytes from the upload request.
- * @returns {boolean}   - True when the buffer starts with the %PDF header.
- */
+import { AiService } from '../services/AiService';
+
 function isPdfBuffer(buf: Buffer): boolean {
   return buf.length >= 4 && buf.slice(0, 4).toString('ascii') === '%PDF';
-}
-
-/**
- * parsePdfToRows
- *
- * Content-aware PDF parser for pharma party/sales report PDFs.
- * Splits raw PDF text by lines, identifies the start of the table from the header index
- * containing 'product' and 'amount', and processes subsequent lines. Each line is checked
- * against a strict numeric format regex. Valid product rows are split into product details
- * and their 4 corresponding numeric values. Noise lines (address, page numbers, metadata, totals)
- * are ignored. Real pharmacy headers are identified and pushed as dictionary rows with no numeric details.
- *
- * @param  {Buffer} buf                      - Raw PDF file buffer; must be non-empty.
- * @returns {Promise<Array<Record<string, any>>>} - Array of parsed product row objects and pharmacy headers.
- * @validates                                - PDF magic number check (caller side), header row occurrence, noise patterns.
- * @required-inputs                          - Non-empty PDF Buffer.
- * @redirects                                - None.
- * @edge-cases                               - Returns empty array if pdf-parse fails, or if no header is found.
- */
-async function parsePdfToRows(buf: Buffer): Promise<any[]> {
-  try {
-    const pdfParse = (await import('pdf-parse')).default;
-    const pdfData  = await pdfParse(buf);
-    const text     = pdfData.text || '';
-
-    const rawLines: string[] = text
-      .split('\n')
-      .map((l: string) => l.trim())
-      .filter((l: string) => l.length > 0);
-
-    if (rawLines.length < 2) return [];
-
-    // ── Strategy 1: Table-based party report PDFs ────────────────────────
-    // Find the column-header line: must contain both 'product' and 'amount'
-    let headerLineIdx = -1;
-    for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
-      const lower = rawLines[i].toLowerCase();
-      if (lower.includes('product') && lower.includes('amount')) {
-        headerLineIdx = i;
-        break;
-      }
-    }
-
-    if (headerLineIdx !== -1) {
-      // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
-      // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
-      const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
-      const rows: any[] = [];
-
-      for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
-        const line  = rawLines[i];
-        const lower = line.toLowerCase();
-
-        // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
-        const isNoise =
-          lower.startsWith('party total') ||
-          lower.startsWith('grand total') ||
-          lower === 'total' ||
-          lower === 'grandtotal' ||
-          lower.includes('pharma distributors') ||
-          lower.includes('surat dawa bazaar') ||
-          lower.includes('vastadevdi road') ||
-          lower.includes('katargam') ||
-          lower.includes('6th floor') ||
-          lower.includes('601 to 603') ||
-          lower.includes('9898530808') ||
-          lower.includes('0261') ||
-          lower.includes('productfreefreeamt') ||
-          (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
-          lower.includes('wise list report') ||
-          lower.includes('product + party') ||
-          lower.includes('page') ||
-          /^\d+\/\d+$/.test(lower) ||
-          (lower.startsWith('from:') && lower.includes('to:'));
-
-        if (isNoise) continue;
-
-        const match = productRowRegex.exec(line);
-        if (match) {
-          // Product row: emit all four numeric columns
-          rows.push({
-            Product: match[1].trim(),
-            Free:    match[2].replace(/,/g, ''),
-            FreeAmt: match[3].replace(/,/g, ''),
-            SaleQty: match[4].replace(/,/g, ''),
-            Amount:  match[5].replace(/,/g, ''),
-          });
-        } else {
-          // Pharmacy / party name row — no Amount key so processSalesAnalytics
-          // detects it as a pharmacy header via the isPharmacyHeader check
-          rows.push({ Product: line });
-        }
-      }
-
-      return rows;
-    }
-
-    // ── Strategy 2: Fallback for CSV/TSV-inside-PDF ──────────────────────
-    const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
-    const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
-    const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
-    if (headers.length === 0) return [];
-
-    const rows: any[] = [];
-    for (let i = 1; i < rawLines.length; i++) {
-      const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
-      if (cells.every((c: string) => c === '')) continue;
-      const row: Record<string, string> = {};
-      headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
-      rows.push(row);
-    }
-    return rows;
-
-  } catch (err) {
-    console.error('[intelligentRouter] pdf-parse failed:', err);
-    return [];
-  }
 }
 
 intelligentRouter.post('/upload', async (c) => {
@@ -156,29 +32,34 @@ intelligentRouter.post('/upload', async (c) => {
       return c.json({ success: false, error: 'This file has already been uploaded.' }, 409);
     }
 
-    // Format detection — PDF branch and Excel/CSV branch (run before insert)
+    // Format detection & upfront validation
     let detectedFormat = 'unknown';
     let confidence     = 0;
+    let valResult: any = null;
 
-    try {
-      let rawRows: any[] = [];
-
-      if (isPdfBuffer(fileBuffer)) {
-        rawRows = await parsePdfToRows(fileBuffer);
-      } else {
+    if (isPdfBuffer(fileBuffer)) {
+      console.log(`[intelligentRouter] Ingesting PDF file: ${fileName}`);
+      valResult = await AiService.validatePdfRelevance(fileBuffer, fileName);
+      if (!valResult.isValid) {
+        console.warn(`[intelligentRouter] Rejecting invalid PDF: ${valResult.reason || 'PDF is not valid format'}`);
+        return c.json({ success: false, error: valResult.reason || 'PDF is not valid format' }, 400);
+      }
+      detectedFormat = valResult.format || 'unknown';
+      confidence     = valResult.confidence || 0.9;
+    } else {
+      try {
         const wb    = XLSX.read(fileBuffer, { type: 'buffer' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        rawRows     = XLSX.utils.sheet_to_json(sheet) as any[];
+        const rawRows     = XLSX.utils.sheet_to_json(sheet) as any[];
+        if (rawRows.length > 0) {
+          const hdrs     = getUniqueHeaders(rawRows);
+          const analysis = analyzeHeaders(hdrs);
+          detectedFormat = analysis.format;
+          confidence     = analysis.confidence;
+        }
+      } catch (err) {
+        console.error('[intelligentRouter] Excel format detection error:', err);
       }
-
-      if (rawRows.length > 0) {
-        const hdrs     = getUniqueHeaders(rawRows);
-        const analysis = analyzeHeaders(hdrs);
-        detectedFormat = analysis.format;
-        confidence     = analysis.confidence;
-      }
-    } catch (err) {
-      console.error('[intelligentRouter] Format detection error:', err);
     }
 
     // Persist the raw file bytes and mark the record as PROCESSING with detectedFormat
@@ -191,6 +72,13 @@ intelligentRouter.post('/upload', async (c) => {
       status:     'PROCESSING',
       format:     detectedFormat
     }).returning().get();
+
+    // Cache the parsed data (if any) to avoid double-processing
+    if (valResult && valResult.data && valResult.data.length > 0) {
+      console.log(`[intelligentRouter] Caching parsed PDF rows for uploadId: ${upload.id}`);
+      (AiService as any).parsedDataCache = (AiService as any).parsedDataCache || new Map();
+      (AiService as any).parsedDataCache.set(upload.id, valResult.data);
+    }
 
     // Offload full DB inserts to background task — non-blocking
     processUploadInBackground(upload.id);
@@ -316,34 +204,34 @@ intelligentRouter.post('/upload-by-path', async (c) => {
       return c.json({ success: false, error: 'This file has already been uploaded.' }, 409);
     }
 
-    // Format detection — identical to the /upload route
+    // Format detection & upfront validation
     let detectedFormat = 'unknown';
     let confidence     = 0;
+    let valResult: any = null;
 
-    try {
-      let rawRows: any[] = [];
-
-      if (fileBuffer.length >= 4 && fileBuffer.slice(0, 4).toString('ascii') === '%PDF') {
-        // Use the same full content-aware parser used by /upload — NOT a naive line stub.
-        // The stub (rawLines.map(l => ({ Product: l }))) only ever produces ["Product"] as headers,
-        // which causes analyzeHeaders to always return format='product' (Product Master),
-        // regardless of actual file content. parsePdfToRows emits { Product, Free, FreeAmt, SaleQty, Amount }
-        // for product rows, giving party_report a score of 5 vs product's 2 — correct detection.
-        rawRows = await parsePdfToRows(fileBuffer);
-      } else {
+    if (fileBuffer.length >= 4 && fileBuffer.slice(0, 4).toString('ascii') === '%PDF') {
+      console.log(`[intelligentRouter/upload-by-path] Ingesting PDF file by path: ${fileName}`);
+      valResult = await AiService.validatePdfRelevance(fileBuffer, fileName);
+      if (!valResult.isValid) {
+        console.warn(`[intelligentRouter/upload-by-path] Rejecting invalid PDF: ${valResult.reason || 'PDF is not valid format'}`);
+        return c.json({ success: false, error: valResult.reason || 'PDF is not valid format' }, 400);
+      }
+      detectedFormat = valResult.format || 'unknown';
+      confidence     = valResult.confidence || 0.9;
+    } else {
+      try {
         const wb    = XLSX.read(fileBuffer, { type: 'buffer' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        rawRows     = XLSX.utils.sheet_to_json(sheet) as any[];
+        const rawRows = XLSX.utils.sheet_to_json(sheet) as any[];
+        if (rawRows.length > 0) {
+          const hdrs     = getUniqueHeaders(rawRows);
+          const analysis = analyzeHeaders(hdrs);
+          detectedFormat = analysis.format;
+          confidence     = analysis.confidence;
+        }
+      } catch (err) {
+        console.error('[intelligentRouter/upload-by-path] Excel format detection error:', err);
       }
-
-      if (rawRows.length > 0) {
-        const hdrs     = getUniqueHeaders(rawRows);
-        const analysis = analyzeHeaders(hdrs);
-        detectedFormat = analysis.format;
-        confidence     = analysis.confidence;
-      }
-    } catch (err) {
-      console.error('[intelligentRouter/upload-by-path] Format detection error:', err);
     }
 
     // Persist the raw file bytes and mark the record as PROCESSING
@@ -356,6 +244,13 @@ intelligentRouter.post('/upload-by-path', async (c) => {
       status:     'PROCESSING',
       format:     detectedFormat
     }).returning().get();
+
+    // Cache the parsed data (if any) to avoid double-processing
+    if (valResult && valResult.data && valResult.data.length > 0) {
+      console.log(`[intelligentRouter/upload-by-path] Caching parsed PDF rows for uploadId: ${upload.id}`);
+      (AiService as any).parsedDataCache = (AiService as any).parsedDataCache || new Map();
+      (AiService as any).parsedDataCache.set(upload.id, valResult.data);
+    }
 
     // Offload full DB inserts to background task — non-blocking
     processUploadInBackground(upload.id);

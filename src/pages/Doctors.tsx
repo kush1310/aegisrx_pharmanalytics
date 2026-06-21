@@ -13,7 +13,7 @@ import {
   Menu,
   Select
 } from '@mantine/core';
-import PageLoader from '../components/PageLoader';
+import GlobalLoadingOverlay from '../components/GlobalLoadingOverlay';
 import { DoctorCardSkeletonGrid } from '../components/SkeletonLoaders';
 import PageSearchBar from '../components/PageSearchBar';
 import { notifications } from '@mantine/notifications';
@@ -38,11 +38,11 @@ import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
 import DoctorWizard from '@/components/doctors/DoctorWizard';
 import type { Doctor } from '@/types';
-import { exportDoctorListPDF } from '@/utils/export';
+import { exportListToExcel } from '@/utils/export';
 import PageHeader from '@/components/PageHeader';
 import styles from './Doctors.module.css';
 
-const DOCTORS_PER_PAGE = 50;
+const DOCTORS_PER_PAGE = 30;
 
 type SortField = 'name' | 'specialization' | 'createdAt';
 type SortDir   = 'asc' | 'desc';
@@ -227,12 +227,19 @@ export default function Doctors() {
                   specialization: d.specialization || 'General',
                   qualification:  d.qualification  || 'Unknown',
                   contact:        d.contact        || '-',
+                  address:        d.address        || '-',
                   pharmacyCount:  getPharmacyCount(d)
                 }));
-                exportDoctorListPDF(exportData);
+                exportListToExcel(
+                  exportData,
+                  'aegisrx-doctors-directorydoctor',
+                  ['Doctor Name', 'Specialization', 'Qualification', 'Phone', 'Address', 'Linked Pharmacies'],
+                  ['name', 'specialization', 'qualification', 'contact', 'address', 'pharmacyCount'],
+                  'Doctors'
+                );
               }}
             >
-              Export PDF
+              Export Excel
             </Button>
             <Button leftSection={<IconPlus size={18} />} onClick={() => setWizardOpen(true)}>
               Add Doctor
@@ -241,14 +248,12 @@ export default function Doctors() {
         }
       />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        {isInitialLoading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-            <PageLoader message="Loading doctors directory..." />
-          </div>
-        )}
-        <div className={isInitialLoading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+      <GlobalLoadingOverlay visible={isInitialLoading} message="Loading doctors directory..." />
 
+      <div className="relative mt-6 flex-1 flex flex-col">
+        <div className={isInitialLoading ? 'pointer-events-none select-none opacity-50 transition-all duration-300 flex-1 flex flex-col' : 'transition-all duration-300 flex-1 flex flex-col'}>
+
+          <div className="flex-grow pb-16">
           {/* Search + Filter + Sort Bar */}
           <Group gap="sm" mt="lg" mb="lg" align="flex-end">
             <PageSearchBar
@@ -345,7 +350,7 @@ export default function Doctors() {
                         <div className="flex items-center gap-2.5 w-full">
                           <IconPrescription size={15} className="shrink-0 text-slate-400" />
                           <Text size="sm" className="text-slate-500 font-semibold">
-                            {getPharmacyCount(doctor)} linked pharmac{getPharmacyCount(doctor) !== 1 ? 'ies' : 'y'}
+                            {getPharmacyCount(doctor)} linked pharmacy
                           </Text>
                         </div>
                       )}
@@ -377,29 +382,32 @@ export default function Doctors() {
               ))}
             </SimpleGrid>
           )}
+          </div>
 
-          {/* Pagination Bar — same Previous / Next style as Products page */}
-          {doctorTotalPages > 1 && (
-            <div className={styles.paginationBar}>
-              <button
-                className={styles.paginationBtn}
-                onClick={() => handlePageChange(activePage - 1)}
+          {/* Pagination */}
+          {!isLoadingDoctors && doctors.length > 0 && doctorTotalPages > 1 && (
+            <div className="sticky bottom-0 mt-auto flex items-center justify-center gap-3 py-3.5 bg-gray-50 border-t border-gray-200 z-50 w-[calc(100%+64px)] -ml-8 -mr-8">
+              <Button
+                variant="light"
+                size="sm"
+                leftSection={<IconChevronLeft size={16} />}
                 disabled={activePage <= 1 || isLoadingDoctors}
+                onClick={() => handlePageChange(activePage - 1)}
               >
-                <IconChevronLeft size={15} />
-                Previous
-              </button>
-              <span className={styles.paginationCount}>
+                Previous 30
+              </Button>
+              <Text className="text-[13px] font-semibold text-[#64748b] min-w-[120px] text-center">
                 {pageStart}–{pageEnd} of {doctorTotal}
-              </span>
-              <button
-                className={styles.paginationBtn}
-                onClick={() => handlePageChange(activePage + 1)}
+              </Text>
+              <Button
+                variant="light"
+                size="sm"
+                rightSection={<IconChevronRight size={16} />}
                 disabled={activePage >= doctorTotalPages || isLoadingDoctors}
+                onClick={() => handlePageChange(activePage + 1)}
               >
-                Next
-                <IconChevronRight size={15} />
-              </button>
+                Next 30
+              </Button>
             </div>
           )}
         </div>

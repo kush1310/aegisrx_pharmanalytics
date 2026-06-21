@@ -48,12 +48,12 @@ import {
   IconSortDescending
 } from '@tabler/icons-react';
 import { useAppStore } from '../stores/appStore';
-import { exportProductListPDF, exportToCSV } from '@/utils/export';
+import { exportListToExcel } from '@/utils/export';
 import PageHeader from '@/components/PageHeader';
 import { api } from '@/lib/api';
 import styles from './Products.module.css';
 
-const PRODUCTS_PER_PAGE = 100;
+const PRODUCTS_PER_PAGE = 30;
 
 export default function Products() {
   const {
@@ -102,7 +102,6 @@ export default function Products() {
   const [sortField, setSortField] = useState<'name' | 'pharmacyCount' | 'createdAt'>('createdAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [isExportingPDF, setIsExportingPDF] = useState(false);
-  const [isExportingCSV, setIsExportingCSV] = useState(false);
 
   /**
    * isInitialLoading — true on page mount.
@@ -318,10 +317,18 @@ export default function Products() {
                   const res = await api.get<any>(`/api/products?page=1&limit=100000&export=true`);
                   if (res.success && res.data) {
                     const exportData = res.data.map((p: any) => ({
-                      name: p.name,
+                      name:          p.name,
+                      pack:          p.pack || '-',
+                      createdAt:     p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-IN') : '-',
                       pharmacyCount: p.pharmacyCount || 0
                     }));
-                    await exportProductListPDF(exportData);
+                    exportListToExcel(
+                      exportData,
+                      'aegisrx-products-directory',
+                      ['Product Name', 'Pack Size', 'Created At', 'Active Pharmacies Count'],
+                      ['name', 'pack', 'createdAt', 'pharmacyCount'],
+                      'Products'
+                    );
                   } else {
                     throw new Error(res.error || 'Failed to fetch all products');
                   }
@@ -336,38 +343,7 @@ export default function Products() {
                 }
               }}
             >
-              Export PDF
-            </Button>
-            <Button
-              variant="light" color="teal"
-              leftSection={<IconDownload size={18} />}
-              loading={isExportingCSV}
-              onClick={async () => {
-                setIsExportingCSV(true);
-                try {
-                  const res = await api.get<any>(`/api/products?page=1&limit=100000&export=true`);
-                  if (res.success && res.data) {
-                    const csvData = res.data.map((p: any) => ({
-                      'Product Name': p.name,
-                      'Pharmacies': p.pharmacyCount || 0,
-                      'Created': new Date(p.createdAt).toLocaleDateString('en-IN')
-                    }));
-                    exportToCSV(csvData, `products_${new Date().toISOString().split('T')[0]}`, ['Product Name', 'Pharmacies', 'Created']);
-                  } else {
-                    throw new Error(res.error || 'Failed to fetch all products');
-                  }
-                } catch (err: any) {
-                  notifications.show({
-                    title: 'Export Failed',
-                    message: err.message || 'Could not fetch entire product list.',
-                    color: 'red'
-                  });
-                } finally {
-                  setIsExportingCSV(false);
-                }
-              }}
-            >
-              Export CSV
+              Export Excel
             </Button>
             <input
               type="file"
@@ -408,8 +384,8 @@ export default function Products() {
         }
       />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div>
+      <div className="relative mt-6 flex-1 flex flex-col">
+        <div className="flex-grow pb-16">
 
       {/* Server-side search & Sort */}
       <Group gap="sm" mb="lg" align="flex-end">
@@ -472,8 +448,7 @@ export default function Products() {
           </Stack>
         </Card>
       ) : (
-        <>
-          <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4, xl: 5 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4, xl: 5 }} spacing="md">
             {products.map((product) => {
               const pharmacyCount = (product as any).pharmacyCount ?? 0;
               return (
@@ -551,37 +526,38 @@ export default function Products() {
               );
             })}
           </SimpleGrid>
+        )}
 
-          {/* Pagination */}
-          {productTotalPages > 1 && (
-            <div className={styles.pagination}>
-              <Button
-                variant="light"
-                size="sm"
-                leftSection={<IconChevronLeft size={16} />}
-                disabled={productPage <= 1}
-                onClick={() => handlePageChange(productPage - 1)}
-              >
-                Previous
-              </Button>
-              <Text className={styles.paginationInfo}>
-                {rangeStart}–{rangeEnd} of {productTotal}
-              </Text>
-              <Button
-                variant="light"
-                size="sm"
-                rightSection={<IconChevronRight size={16} />}
-                disabled={productPage >= productTotalPages}
-                onClick={() => handlePageChange(productPage + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
+      </div> {/* closes class="flex-grow pb-16" */}
+
+      {/* Pagination */}
+      {!isInitialLoading && !isLoadingProducts && products.length > 0 && productTotalPages > 1 && (
+        <div className="sticky bottom-0 mt-auto flex items-center justify-center gap-3 py-3.5 bg-gray-50 border-t border-gray-200 z-50 w-[calc(100%+64px)] -ml-8 -mr-8">
+          <Button
+            variant="light"
+            size="sm"
+            leftSection={<IconChevronLeft size={16} />}
+            disabled={productPage <= 1 || isLoadingProducts}
+            onClick={() => handlePageChange(productPage - 1)}
+          >
+            Previous 30
+          </Button>
+          <Text className="text-[13px] font-semibold text-[#64748b] min-w-[120px] text-center">
+            {rangeStart}–{rangeEnd} of {productTotal}
+          </Text>
+          <Button
+            variant="light"
+            size="sm"
+            rightSection={<IconChevronRight size={16} />}
+            disabled={productPage >= productTotalPages || isLoadingProducts}
+            onClick={() => handlePageChange(productPage + 1)}
+          >
+            Next 30
+          </Button>
+        </div>
       )}
-      </div>
-      </div>
+
+    </div> {/* closes class="relative mt-6 flex-1 flex flex-col" */}
 
       {/* Add / Edit Modal */}
       <Modal

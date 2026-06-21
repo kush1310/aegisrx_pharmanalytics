@@ -1,5 +1,9 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import path from 'path';
+import fs from 'fs';
+import { app } from 'electron';
 import * as schema from './schema';
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -19,6 +23,24 @@ export function initDb(dbPath: string) {
   _sqlite.pragma('mmap_size = 268435456');
   // Prevent WAL file from growing unbounded during heavy background writes
   _sqlite.pragma('wal_autocheckpoint = 1000');
+
+  // ── Run migrations ──
+  try {
+    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+    const migrationsFolder = isDev
+      ? path.join(process.cwd(), 'drizzle')
+      : path.join(app.getPath('userData'), 'drizzle');
+    
+    if (fs.existsSync(migrationsFolder)) {
+      const db = drizzle(_sqlite, { schema });
+      migrate(db, { migrationsFolder });
+      console.log('[DB] Migrations applied successfully.');
+    } else {
+      console.warn('[DB] Migrations folder not found at:', migrationsFolder);
+    }
+  } catch (migErr: any) {
+    console.error('[DB] Migration failed:', migErr);
+  }
 
   // ── Ensure all performance indexes exist on startup ──
   // PharmacyProduct join indexes
@@ -87,6 +109,47 @@ export function initDb(dbPath: string) {
     console.error('[DB] User migration error:', err.message);
   }
 
+  // ── Doctor table migration (missing schema columns) ──
+  try {
+    const doctorInfo = _sqlite.prepare("PRAGMA table_info(Doctor)").all() as any[];
+    const doctorCols = doctorInfo.map(col => col.name);
+    
+    const missingColumns = [
+      { name: 'spouseBirthDate', type: 'TEXT' },
+      { name: 'childrenBirthDates', type: 'TEXT' },
+      { name: 'hospitalName', type: 'TEXT' },
+      { name: 'hospitalOpeningDate', type: 'TEXT' },
+      { name: 'hospitalsCount', type: 'INTEGER NOT NULL DEFAULT 0' },
+      { name: 'hospitalNames', type: 'TEXT' },
+      { name: 'hospitalOpeningDates', type: 'TEXT' }
+    ];
+
+    for (const col of missingColumns) {
+      if (!doctorCols.includes(col.name)) {
+        _sqlite.exec(`ALTER TABLE Doctor ADD COLUMN ${col.name} ${col.type}`);
+        console.log(`[DB] Added ${col.name} column to Doctor table.`);
+      }
+    }
+  } catch (err: any) {
+    console.error('[DB] Doctor table custom migrations error:', err.message);
+  }
+
+  // ── Pharmacy table migration (primary & secondary contacts) ──
+  try {
+    const pharmacyInfo = _sqlite.prepare("PRAGMA table_info(Pharmacy)").all() as any[];
+    const pharmacyCols = pharmacyInfo.map(col => col.name);
+    if (!pharmacyCols.includes('primaryContact')) {
+      _sqlite.exec("ALTER TABLE Pharmacy ADD COLUMN primaryContact TEXT");
+      console.log('[DB] Added primaryContact column to Pharmacy table.');
+    }
+    if (!pharmacyCols.includes('secondaryContact')) {
+      _sqlite.exec("ALTER TABLE Pharmacy ADD COLUMN secondaryContact TEXT");
+      console.log('[DB] Added secondaryContact column to Pharmacy table.');
+    }
+  } catch (err: any) {
+    console.error('[DB] Pharmacy contacts migration error:', err.message);
+  }
+
   // ── DoctorProduct migration (auto-creates on first run, safe on existing DBs) ──
   _sqlite.exec(`
     CREATE TABLE IF NOT EXISTS DoctorProduct (
@@ -99,6 +162,18 @@ export function initDb(dbPath: string) {
   `);
   _sqlite.exec('CREATE INDEX IF NOT EXISTS dp_doctor_idx ON DoctorProduct(doctorId)');
   _sqlite.exec('CREATE INDEX IF NOT EXISTS dp_product_idx ON DoctorProduct(productId)');
+  // ── Notification table migration (isCleared column) ──
+  try {
+    const notificationInfo = _sqlite.prepare("PRAGMA table_info(Notification)").all() as any[];
+    const notificationCols = notificationInfo.map(col => col.name);
+    if (!notificationCols.includes('isCleared')) {
+      _sqlite.exec("ALTER TABLE Notification ADD COLUMN isCleared INTEGER NOT NULL DEFAULT 0");
+      console.log('[DB] Added isCleared column to Notification table.');
+    }
+  } catch (err: any) {
+    console.error('[DB] Notification isCleared migration error:', err.message);
+  }
+
   // ── DismissedNotification migration (persistent push-notification tombstone) ──
   // CREATE TABLE IF NOT EXISTS is safe on existing DBs — idempotent on all restarts.
   _sqlite.exec(`

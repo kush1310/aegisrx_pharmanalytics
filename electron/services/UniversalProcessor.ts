@@ -5,6 +5,7 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/index';
 import { excelUploads, products, pharmacies, pharmacyProducts, salesTransactions, doctors } from '../db/schema';
 import { getUniqueHeaders, analyzeHeaders } from '../routes/excel';
+import { AiService } from './AiService';
 
 /**
  * isPdfBuffer — checks first 4 bytes for the %PDF magic number.
@@ -13,124 +14,6 @@ import { getUniqueHeaders, analyzeHeaders } from '../routes/excel';
  */
 function isPdfBuffer(buf: Buffer): boolean {
   return buf.length >= 4 && buf.slice(0, 4).toString('ascii') === '%PDF';
-}
-
-/**
- * parsePdfToRowsBackground
- *
- * Content-aware PDF parser for pharma party/sales report PDFs.
- * Splits raw PDF text by lines, identifies the start of the table from the header index
- * containing 'product' and 'amount', and processes subsequent lines. Each line is checked
- * against a strict numeric format regex. Valid product rows are split into product details
- * and their 4 corresponding numeric values. Noise lines (address, page numbers, metadata, totals)
- * are ignored. Real pharmacy headers are identified and pushed as dictionary rows with no numeric details.
- *
- * @param  {Buffer} buf                      - Raw PDF file buffer; must be non-empty.
- * @returns {Promise<Array<Record<string, any>>>} - Array of parsed product row objects and pharmacy headers.
- * @validates                                - PDF magic number check (caller side), header row occurrence, noise patterns.
- * @required-inputs                          - Non-empty PDF Buffer.
- * @redirects                                - None.
- * @edge-cases                               - Returns empty array if pdf-parse fails, or if no header is found.
- */
-async function parsePdfToRowsBackground(buf: Buffer): Promise<any[]> {
-  try {
-    const pdfParse = (await import('pdf-parse')).default;
-    const pdfData  = await pdfParse(buf);
-    const text     = pdfData.text || '';
-
-    const rawLines: string[] = text
-      .split('\n')
-      .map((l: string) => l.trim())
-      .filter((l: string) => l.length > 0);
-
-    if (rawLines.length < 2) return [];
-
-    // ── Strategy 1: Table-based party report PDFs ────────────────────────────
-    // Find the column-header line: must contain BOTH 'product' AND 'amount'
-    let headerLineIdx = -1;
-    for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
-      const lower = rawLines[i].toLowerCase();
-      if (lower.includes('product') && lower.includes('amount')) {
-        headerLineIdx = i;
-        break;
-      }
-    }
-
-    if (headerLineIdx !== -1) {
-      // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
-      // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
-      const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
-      const rows: any[] = [];
-
-      for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
-        const line  = rawLines[i];
-        const lower = line.toLowerCase();
-
-        // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
-        const isNoise =
-          lower.startsWith('party total') ||
-          lower.startsWith('grand total') ||
-          lower === 'total' ||
-          lower === 'grandtotal' ||
-          lower.includes('pharma distributors') ||
-          lower.includes('surat dawa bazaar') ||
-          lower.includes('vastadevdi road') ||
-          lower.includes('katargam') ||
-          lower.includes('6th floor') ||
-          lower.includes('601 to 603') ||
-          lower.includes('9898530808') ||
-          lower.includes('0261') ||
-          lower.includes('productfreefreeamt') ||
-          (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
-          lower.includes('wise list report') ||
-          lower.includes('product + party') ||
-          lower.includes('page') ||
-          /^\d+\/\d+$/.test(lower) ||
-          (lower.startsWith('from:') && lower.includes('to:'));
-
-        if (isNoise) continue;
-
-        const match = productRowRegex.exec(line);
-        if (match) {
-          // Product row: name + Free + FreeAmt + SaleQty + Amount
-          rows.push({
-            Product: match[1].trim(),
-            Free:    match[2].replace(/,/g, ''),
-            FreeAmt: match[3].replace(/,/g, ''),
-            SaleQty: match[4].replace(/,/g, ''),
-            Amount:  match[5].replace(/,/g, ''),
-          });
-        } else {
-          // Pharmacy / party name row — emit with only Product key (no Amount).
-          // processSalesAnalytics checks: isPharmacyHeader = (amountVal === undefined || isNaN(amountNum))
-          // This correctly sets currentPharmacyName = line.
-          rows.push({ Product: line });
-        }
-      }
-
-      return rows;
-    }
-
-    // ── Strategy 2: Fallback for CSV/TSV-inside-PDF ──────────────────────────
-    const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
-    const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
-    const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
-    if (headers.length === 0) return [];
-
-    const rows: any[] = [];
-    for (let i = 1; i < rawLines.length; i++) {
-      const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
-      if (cells.every((c: string) => c === '')) continue;
-      const row: Record<string, string> = {};
-      headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
-      rows.push(row);
-    }
-    return rows;
-
-  } catch (err) {
-    console.error('[UniversalProcessor] parsePdfToRowsBackground failed:', err);
-    return [];
-  }
 }
 
 export async function processUploadInBackground(uploadId: number) {
@@ -165,7 +48,17 @@ async function executeProcessing(uploadId: number) {
   const fileBuffer = upload.fileData as Buffer;
 
   if (isPdfBuffer(fileBuffer)) {
-    rawData = await parsePdfToRowsBackground(fileBuffer);
+    console.log(`[UniversalProcessor] Ingesting PDF in background for uploadId: ${uploadId}`);
+    // Check if we have cached parsed data from the upload validation step
+    const cachedData = (AiService as any).parsedDataCache?.get(uploadId);
+    if (cachedData && cachedData.length > 0) {
+      console.log(`[UniversalProcessor] Using cached parsed data for uploadId: ${uploadId}`);
+      rawData = cachedData;
+      (AiService as any).parsedDataCache?.delete(uploadId); // clean memory cache
+    } else {
+      console.log(`[UniversalProcessor] Cache miss, parsing PDF for uploadId: ${uploadId}`);
+      rawData = await AiService.parsePdfContent(fileBuffer, upload.format || 'party_report');
+    }
   } else {
     try {
       const workbook  = XLSX.read(fileBuffer, { type: 'buffer' });
@@ -186,13 +79,17 @@ async function executeProcessing(uploadId: number) {
   const hdrs = getUniqueHeaders(rawData);
   const { format } = analyzeHeaders(hdrs);
 
-  if (format === 'party_report') {
+  // If format is unknown but we parsed valid data (e.g. from Gemini or cache), default to the stored upload format
+  const finalFormat = format !== 'unknown' ? format : (upload.format || 'party_report');
+  console.log(`[UniversalProcessor] finalFormat: ${finalFormat} for uploadId: ${uploadId}`);
+
+  if (finalFormat === 'party_report') {
     await processSalesAnalytics(rawData, uploadId);
-  } else if (format === 'product') {
+  } else if (finalFormat === 'product') {
     await processProductMaster(rawData, uploadId);
-  } else if (format === 'doctor') {
+  } else if (finalFormat === 'doctor') {
     await processDoctorMaster(rawData, uploadId);
-  } else if (format === 'pharmacy') {
+  } else if (finalFormat === 'pharmacy') {
     await processPharmacyMaster(rawData, uploadId);
   } else {
     db.update(excelUploads).set({ status: 'ERROR_UNKNOWN_FORMAT' }).where(eq(excelUploads.id, uploadId)).run();

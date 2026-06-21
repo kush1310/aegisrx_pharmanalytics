@@ -34,10 +34,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Fuse from 'fuse.js';
-import { exportToCSV } from '@/utils/export';
+import { exportListToExcel } from '@/utils/export';
 import { api } from '@/lib/api';
 import PageHeader from '@/components/PageHeader';
-import PageLoader from '@/components/PageLoader';
+import GlobalLoadingOverlay from '@/components/GlobalLoadingOverlay';
 import { TableSkeletonBody } from '@/components/SkeletonLoaders';
 import { useAppStore } from '@/stores/appStore';
 import PremiumSearchBar from '@/components/PremiumSearchBar';
@@ -188,16 +188,22 @@ export default function History() {
     });
   };
 
-  const handleExportCSV = () => {
-    const csvData = processedUploads.map(u => ({
-      'File Name': u.fileName,
-      'Upload Date': formatDate(u.uploadDate),
-      'File Size': u.fileSize ? formatSize(u.fileSize) : 'Unknown',
-      'Records': u.recordCount || 0,
-      'Format': FORMAT_LABELS[u.detectedFormat || 'unknown']?.label || 'Unknown',
-      'Status': u.status
+  const handleExportExcel = () => {
+    const exportData = processedUploads.map(u => ({
+      fileName:   u.fileName,
+      uploadDate: formatDate(u.uploadDate),
+      fileSize:   u.fileSize ? formatSize(u.fileSize) : 'Unknown',
+      records:    u.recordCount || 0,
+      format:     FORMAT_LABELS[u.detectedFormat || 'unknown']?.label || 'Unknown',
+      status:     u.status
     }));
-    exportToCSV(csvData, `upload_history_${new Date().toISOString().split('T')[0]}`, ['File Name', 'Upload Date', 'File Size', 'Records', 'Format', 'Status']);
+    exportListToExcel(
+      exportData,
+      `upload_history_${new Date().toISOString().split('T')[0]}`,
+      ['File Name', 'Upload Date', 'File Size', 'Records', 'Format', 'Status'],
+      ['fileName', 'uploadDate', 'fileSize', 'records', 'format', 'status'],
+      'Uploads'
+    );
   };
 
   /**
@@ -325,10 +331,10 @@ export default function History() {
               variant="light"
               color="indigo"
               leftSection={<IconDownload size={18} />}
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
               disabled={processedUploads.length === 0}
             >
-              Export CSV
+              Export Excel
             </Button>
             <Button
               color="indigo"
@@ -341,13 +347,10 @@ export default function History() {
         }
       />
 
+      <GlobalLoadingOverlay visible={loading} message="Retrieving upload history..." />
+
       <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        {loading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 backdrop-blur-sm rounded-2xl transition-all duration-300">
-            <PageLoader message="Retrieving upload history..." />
-          </div>
-        )}
-        <div className={loading ? 'blur-[3px] pointer-events-none select-none transition-all duration-300' : 'transition-all duration-300'}>
+        <div className={loading ? 'pointer-events-none select-none opacity-50 transition-all duration-300' : 'transition-all duration-300'}>
 
       {/* Summary Stats Cards */}
       {uploads.length > 0 && (

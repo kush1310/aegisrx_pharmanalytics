@@ -85,9 +85,7 @@ export default function AddPharmacyModal({ opened, onClose, onSuccess }: AddPhar
       newErrors.ownerName = 'Owner name must be at least 2 characters';
     }
 
-    if (!formData.licenseId.trim()) {
-      newErrors.licenseId = 'License ID is required';
-    }
+
 
     if (formData.gstNumber && !validateGST(formData.gstNumber)) {
       newErrors.gstNumber = 'Invalid GST number format';
@@ -210,8 +208,7 @@ export default function AddPharmacyModal({ opened, onClose, onSuccess }: AddPhar
         <Group grow>
           <TextInput
             label="License ID"
-            placeholder="Pharmacy license ID"
-            required
+            placeholder="Pharmacy license ID (Optional)"
             value={formData.licenseId}
             onChange={(e) => updateField('licenseId', e.target.value)}
             error={errors.licenseId}

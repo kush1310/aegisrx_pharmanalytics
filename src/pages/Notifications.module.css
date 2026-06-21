@@ -16,6 +16,19 @@
   animation: notifSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Outer container wrapper (ElectroBorder) */
+.notifCardOuter {
+  position: relative;
+  transition:
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.notifCardOuter:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 32px -6px rgba(99, 102, 241, 0.14), 0 2px 8px -2px rgba(0, 0, 0, 0.06);
+}
+
 /* ── Card base ───────────────────────────────────────────────────── */
 .notifCard {
   position: relative;
@@ -24,20 +37,10 @@
   gap: 14px;
   padding: 16px 18px;
   border-radius: 16px;
-  border: 1px solid transparent;
   background: #ffffff;
   overflow: hidden;
-  transition:
-    transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 220ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.notifCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 32px -6px rgba(99, 102, 241, 0.14), 0 2px 8px -2px rgba(0, 0, 0, 0.06);
-  border-color: rgba(99, 102, 241, 0.18);
-}
 
 /* ── Unread card — subtle gradient wash ─────────────────────────── */
 .notifCardUnread {
@@ -55,24 +58,6 @@
   background: #ffffff;
 }
 
-/* ── Left accent stripe (unread indicator) ───────────────────────── */
-.accentStripe {
-  position: absolute;
-  left: 0;
-  top: 12px;
-  bottom: 12px;
-  width: 3.5px;
-  border-radius: 0 4px 4px 0;
-}
-
-.accentBirthday {
-  background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
-}
-
-.accentAnniversary {
-  background: linear-gradient(180deg, #ec4899 0%, #f43f5e 100%);
-}
-
 /* ── Event icon bubble ───────────────────────────────────────────── */
 .eventIcon {
   flex-shrink: 0;
@@ -85,7 +70,7 @@
   transition: transform 200ms ease;
 }
 
-.notifCard:hover .eventIcon {
+.notifCardOuter:hover .eventIcon {
   transform: scale(1.06) rotate(-3deg);
 }
 
@@ -134,7 +119,7 @@
   transition: opacity 180ms ease, transform 150ms ease !important;
 }
 
-.notifCard:hover .deleteBtn {
+.notifCardOuter:hover .deleteBtn {
   opacity: 0.9;
 }
 

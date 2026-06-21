@@ -8,14 +8,38 @@ import { startServer } from './server';
 import { users } from './db/schema';
 import { checkEventsLogic } from './routes/notifications';
 
+// ── Crash log setup ─────────────────────────────────────────────────────
+// Writes crash details to %APPDATA%/aegisrx-v1/crash-logs/ so they can
+// be retrieved for debugging without needing DevTools.
+function writeCrashLog(tag: string, detail: string): void {
+  try {
+    const logDir  = path.join(app.getPath('userData'), 'crash-logs');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const stamp   = new Date().toISOString().replace(/[:.]/g, '-');
+    const logFile = path.join(logDir, `${tag}-${stamp}.txt`);
+    const header  = `AegisRx Crash Log — ${new Date().toISOString()}\nProcess: ${tag}\n${'─'.repeat(60)}\n`;
+    fs.writeFileSync(logFile, header + detail + '\n', 'utf8');
+  } catch { /* cannot crash the crash handler */ }
+}
+
+process.on('uncaughtException', (err) => {
+  writeCrashLog('main-uncaught', `${err?.stack || err}`);
+  console.error('[CRASH] uncaughtException:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  writeCrashLog('main-unhandled-rejection', String(reason));
+  console.error('[CRASH] unhandledRejection:', reason);
+});
+
 // Save original log to print "application started" at the end of initialization
 const originalLog = console.log;
 
 // Mute all other terminal logs from Electron and Hono
-console.log = () => {};
-console.warn = () => {};
-console.error = () => {};
-console.info = () => {};
+// console.log = () => {};
+// console.warn = () => {};
+// console.error = () => {};
+// console.info = () => {};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -25,7 +49,9 @@ try {
   const possiblePaths = [
     path.join(__dirname, '../.env'),
     path.join(process.cwd(), '.env'),
-    path.join(app.getAppPath(), '.env')
+    path.join(app.getAppPath(), '.env'),
+    // packaged build: .env lands in process.resourcesPath via extraResources
+    ...(process.resourcesPath ? [path.join(process.resourcesPath, '.env')] : []),
   ];
   for (const envPath of possiblePaths) {
     if (fs.existsSync(envPath)) {
@@ -77,15 +103,92 @@ if (app.isPackaged) {
   ].filter(Boolean).join(path.delimiter);
 }
 
-// ── Database init ──────────────────────────────────────────────────────
+/**
+ * initializeDatabase
+ *
+ * Configures the SQLite database file path. In production builds, if no database
+ * exists in the user data directory, the bundled seed database and migrations
+ * are automatically copied from the read-only resources package to the writable
+ * AppData directory. Connects to the database and applies pending Drizzle migrations.
+ *
+ * @returns {ReturnType<typeof initDb>} - The initialized database instance.
+ */
 function initializeDatabase() {
-  const dbPath = isDev
-    ? path.join(__dirname, '../data/suratpharma.db')
-    : path.join(app.getPath('userData'), 'suratpharma.db');
+  const userDataDir = app.getPath('userData');
+  const configPath = path.join(userDataDir, 'db_config.json');
+  let customDbDir = '';
 
-  // Ensure directory exists
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (config.databaseDir && fs.existsSync(config.databaseDir)) {
+        customDbDir = config.databaseDir;
+      }
+    } catch (err) {
+      console.error('[DB] Failed to read db_config.json:', err);
+    }
+  }
+
+  const dbPath = customDbDir
+    ? path.join(customDbDir, 'suratpharma.db')
+    : (isDev
+        ? path.join(__dirname, '../data/suratpharma.db')
+        : path.join(userDataDir, 'suratpharma.db'));
+
+  // In production, copy seed database and drizzle migrations to writable AppData if missing
+  if (!isDev) {
+    // Copy the pre-seeded SQLite database file if it does not exist
+    if (!fs.existsSync(dbPath)) {
+      const seedDbPath = path.join(process.resourcesPath, 'data/suratpharma.db');
+      if (fs.existsSync(seedDbPath)) {
+        const dbDir = path.dirname(dbPath);
+        if (!fs.existsSync(dbDir)) {
+          fs.mkdirSync(dbDir, { recursive: true });
+        }
+        try {
+          fs.copyFileSync(seedDbPath, dbPath);
+          console.log('[DB] Seed database copied successfully to:', dbPath);
+        } catch (copyErr) {
+          console.error('[DB] Failed to copy seed database:', copyErr);
+        }
+      } else {
+        console.error('[DB] Seed database not found in resources:', seedDbPath);
+      }
+    }
+
+    // Copy the drizzle migrations folder to ensure the app can run migrations locally
+    const destDrizzleDir = path.join(userDataDir, 'drizzle');
+    if (!fs.existsSync(destDrizzleDir)) {
+      const srcDrizzleDir = path.join(process.resourcesPath, 'drizzle');
+      if (fs.existsSync(srcDrizzleDir)) {
+        try {
+          const recursiveCopyDir = (srcPath: string, destPath: string) => {
+            fs.mkdirSync(destPath, { recursive: true });
+            const entries = fs.readdirSync(srcPath, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullSrc = path.join(srcPath, entry.name);
+              const fullDest = path.join(destPath, entry.name);
+              if (entry.isDirectory()) {
+                recursiveCopyDir(fullSrc, fullDest);
+              } else {
+                fs.copyFileSync(fullSrc, fullDest);
+              }
+            }
+          };
+          recursiveCopyDir(srcDrizzleDir, destDrizzleDir);
+          console.log('[DB] Drizzle migrations copied to user data directory.');
+        } catch (copyErr) {
+          console.error('[DB] Failed to copy migrations folder:', copyErr);
+        }
+      } else {
+        console.error('[DB] Source migrations folder not found in resources:', srcDrizzleDir);
+      }
+    }
+  } else {
+    // In development mode, ensure the local data folder exists
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }
 
   process.env.DATABASE_URL = `file:${dbPath}`;
 
@@ -155,6 +258,16 @@ function createWindow() {
     }
   });
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    writeCrashLog('renderer', JSON.stringify(details, null, 2));
+    console.error('[CRASH] render-process-gone:', details);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    writeCrashLog('did-fail-load', `errorCode=${errorCode}\nerrorDescription=${errorDescription}\nurl=${validatedURL}`);
+    console.error('[CRASH] did-fail-load:', errorCode, errorDescription, validatedURL);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -197,8 +310,8 @@ app.whenReady().then(() => {
 
     // Schedule checking events (birthday / anniversary).
     // Dev: 10-second delay so the tombstone fix is immediately verifiable after hot-reload.
-    // Production: 5-minute delay so the system is fully ready before scanning.
-    const startupDelayMs = isDev ? 10000 : 300000;
+    // Production: 1.5-minute delay so the system is fully ready before scanning.
+    const startupDelayMs = isDev ? 10000 : 90000;
     setTimeout(() => {
       checkEventsLogic();
       // Keep checking every 12 hours while the machine remains active

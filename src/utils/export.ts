@@ -8,6 +8,7 @@
  * @module export
  */
 import { saveAs } from 'file-saver';
+import * as XLSX from 'xlsx';
 
 // Design specification tokens
 const COLOR_PRIMARY = '#1A365D';    // Deep Corporate Blue
@@ -370,6 +371,7 @@ export const exportToCSV = (data: any[], filename: string, headers?: string[]) =
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
   saveAs(blob, `${filename}.csv`);
 };
+
 
 /**
  * exportBusinessSummaryPDF
@@ -956,4 +958,169 @@ export const exportProductListPDF = async (
   const html = wrapHtmlTemplate('Product Directory', `Total: ${products.length} products in catalogue`, bodyHtml);
   const dateStr = new Date().toISOString().split('T')[0];
   await downloadPDFFromHTML(html, `AegisRx_Products_Directory_${dateStr}.pdf`);
+};
+
+// ── Excel Export Utilities ──
+
+export const exportToExcel = (
+  sheets: { name: string; data: any[][]; colWidths?: { wch: number }[] }[],
+  filename: string
+) => {
+  const wb = XLSX.utils.book_new();
+  
+  for (const sheet of sheets) {
+    // Excel sheet name limit is 31 chars and cannot contain certain special characters
+    const cleanedName = sheet.name.replace(/[\\\/\?\*\:\[\]]/g, '').slice(0, 31) || 'Sheet';
+    const ws = XLSX.utils.aoa_to_sheet(sheet.data);
+    if (sheet.colWidths) {
+      ws['!cols'] = sheet.colWidths;
+    }
+    XLSX.utils.book_append_sheet(wb, ws, cleanedName);
+  }
+  
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+  
+  const s2ab = (s: string) => {
+    const buf = new ArrayBuffer(s.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < s.length; i++) {
+      view[i] = s.charCodeAt(i) & 0xFF;
+    }
+    return buf;
+  };
+  
+  const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+  saveAs(blob, `${filename}.xlsx`);
+};
+
+export const exportListToExcel = (
+  data: any[],
+  filename: string,
+  headers: string[],
+  keys: string[],
+  sheetName = 'Sheet1'
+) => {
+  const sheetData = [
+    headers,
+    ...data.map(row => keys.map(k => (row[k] !== undefined && row[k] !== null) ? row[k] : ''))
+  ];
+  exportToExcel([{ name: sheetName, data: sheetData }], filename);
+};
+
+export const exportBusinessSummaryExcel = (
+  groups: {
+    doctorName: string;
+    grandTotal: number;
+    pharmacies: {
+      pharmacyName: string;
+      totalAmount: number;
+      medicines: { name: string; saleQty: number; amount: number }[];
+    }[];
+  }[],
+  dateRange: { minDate: string | null; maxDate: string | null },
+  filename = 'aegisrx-business-summary'
+) => {
+  const sheets: { name: string; data: any[][]; colWidths?: { wch: number }[] }[] = [];
+  
+  const formatDateDMY = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const minD = formatDateDMY(dateRange.minDate) || '01/05/2026';
+  const maxD = formatDateDMY(dateRange.maxDate) || '31/05/2026';
+  const dateStrHeader = `From: ${minD} To: ${maxD}`;
+
+  for (const doc of groups) {
+    const sheetData: any[][] = [];
+    
+    // Row 1: date range matching Photo 2 (A1 has '#', B1 has dates)
+    sheetData.push(['#', dateStrHeader, '', '']);
+    // Row 2: Title in Column B
+    sheetData.push(['', 'Product + Party Wise List Report', '', '']);
+    
+    // Add pharmacy listings
+    for (const pharmacy of doc.pharmacies) {
+      sheetData.push(['', `Party Name: ${pharmacy.pharmacyName.toUpperCase()}`, '', '']);
+      
+      for (const med of pharmacy.medicines) {
+        sheetData.push(['', med.name, med.saleQty, med.amount]);
+      }
+      
+      // Total revenue of single pharmacy (Photo 1)
+      sheetData.push(['', 'Total Revenue', '', pharmacy.totalAmount]);
+    }
+    
+    // Bottom row: Grand Total matching Photo 2: `# | | | [grandTotal]`
+    sheetData.push(['#', '', '', doc.grandTotal]);
+    
+    sheets.push({
+      name: doc.doctorName,
+      data: sheetData,
+      colWidths: [
+        { wch: 6 },   // Column A: #
+        { wch: 55 },  // Column B: Party/Product Name
+        { wch: 10 },  // Column C: Qty
+        { wch: 15 }   // Column D: Amount
+      ]
+    });
+  }
+  
+  exportToExcel(sheets, filename);
+};
+
+export const exportProfileExcel = (
+  doctor: {
+    name: string;
+    specialization: string;
+    qualification: string;
+    contact: string;
+    address: string;
+    birthDate?: string | null;
+    spouseName?: string | null;
+    childrenNames?: string | null;
+    pharmacies?: any[];
+  },
+  filename?: string
+) => {
+  const sheetData: any[][] = [];
+  
+  sheetData.push(['Doctor Profile', doctor.name, '', '']);
+  sheetData.push(['Specialization', doctor.specialization, '', '']);
+  sheetData.push(['Qualification', doctor.qualification, '', '']);
+  sheetData.push(['Phone', doctor.contact, '', '']);
+  sheetData.push(['Address', doctor.address, '', '']);
+  
+  if (doctor.birthDate) {
+    sheetData.push(['Date of Birth', new Date(doctor.birthDate).toLocaleDateString('en-IN'), '', '']);
+  }
+  if (doctor.spouseName) {
+    sheetData.push(['Spouse Name', doctor.spouseName, '', '']);
+  }
+  
+  sheetData.push(['', '', '', '']); // blank row
+  
+  // Linked Pharmacies section
+  sheetData.push(['Linked Pharmacies', '', '', '']);
+  sheetData.push(['#', 'Pharmacy Name', 'License ID', 'Contact']);
+  
+  const linkedPharms = doctor.pharmacies || [];
+  linkedPharms.forEach((ph: any, idx: number) => {
+    const p = ph.pharmacy || ph;
+    sheetData.push([
+      idx + 1,
+      p.name || 'Unknown',
+      p.licenseId || '-',
+      p.contact || '-'
+    ]);
+  });
+  
+  const cleanName = doctor.name.replace(/^(dr\.\s*|dr\s+)+/i, '').replace(/\s+/g, '_');
+  const file = filename || `AegisRx_Dr_${cleanName}`;
+  
+  exportToExcel([{ name: 'Profile', data: sheetData }], file);
 };

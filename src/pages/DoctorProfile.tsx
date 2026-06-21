@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { modals } from '@mantine/modals';
 import {
   Card, Text, Group, Stack, Badge, Button, ActionIcon,
-  Tabs, Paper, Modal, Select,
-  Divider, Tooltip
+  Tabs, Paper, Modal, Select, Table,
+  Divider, Tooltip, ScrollArea
 } from '@mantine/core';
 import { DoctorProfileSkeleton } from '../components/SkeletonLoaders';
 import { notifications as notify } from '@mantine/notifications';
@@ -65,6 +65,7 @@ export default function DoctorProfile() {
   const [selectedProductId,   setSelectedProductId]   = useState<string | null>(null);
   const [medAdding,           setMedAdding]           = useState(false);
   const [medRemoving,         setMedRemoving]         = useState<number | null>(null);
+  const [seeAllPharmaciesOpen, setSeeAllPharmaciesOpen] = useState(false);
 
   // Stocked products per linked pharmacy
   // Map of pharmacyId -> array of { id, name } products stocked there
@@ -267,6 +268,26 @@ export default function DoctorProfile() {
     if (!dateStr) return null;
     return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
   };
+ 
+  const formatDOB = (dateStr: string | null) => {
+    if (!dateStr) return '';
+    try {
+      const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+      const parts = cleanDate.split('-');
+      if (parts.length === 3) {
+        const [y, m, d] = parts;
+        if (y.length === 4) return `${d}-${m}-${y}`;
+      }
+      const dObj = new Date(dateStr);
+      if (isNaN(dObj.getTime())) return '';
+      const dd = String(dObj.getDate()).padStart(2, '0');
+      const mm = String(dObj.getMonth() + 1).padStart(2, '0');
+      const yyyy = dObj.getFullYear();
+      return `${dd}-${mm}-${yyyy}`;
+    } catch {
+      return '';
+    }
+  };
 
   const availablePharmacies = pharmacies.filter(p => !p.doctorId);
   const availableProducts = allProducts.filter(
@@ -286,15 +307,27 @@ export default function DoctorProfile() {
 
   if (!doctor) return null;
 
-  let childrenNames: string[] = [];
+  interface ChildInfo {
+    name: string;
+    birthDate: string | null;
+  }
+  let childrenData: ChildInfo[] = [];
   try {
     if (doctor.childrenNames) {
-      childrenNames = doctor.childrenNames.trim().startsWith('[')
+      const parsed = doctor.childrenNames.trim().startsWith('[')
         ? JSON.parse(doctor.childrenNames)
-        : doctor.childrenNames.split(',').map(n => n.trim());
+        : null;
+      if (Array.isArray(parsed)) {
+        childrenData = parsed.map(c => {
+          if (typeof c === 'string') return { name: c, birthDate: null };
+          return { name: c.name || '', birthDate: c.birthDate || null };
+        });
+      } else {
+        childrenData = doctor.childrenNames.split(',').map(n => ({ name: n.trim(), birthDate: null }));
+      }
     }
   } catch {
-    childrenNames = doctor.childrenNames ? doctor.childrenNames.split(',').map(n => n.trim()) : [];
+    childrenData = doctor.childrenNames ? doctor.childrenNames.split(',').map(n => ({ name: n.trim(), birthDate: null })) : [];
   }
 
   return (
@@ -334,9 +367,9 @@ export default function DoctorProfile() {
               size="sm"
               color="gray"
               leftSection={<IconDownload size={15} />}
-              onClick={() => import('@/utils/export').then(({ exportProfilePDF }) => exportProfilePDF(doctor))}
+              onClick={() => import('@/utils/export').then(({ exportProfileExcel }) => exportProfileExcel(doctor))}
             >
-              Export PDF
+              Export Excel
             </Button>
             <Tooltip label="Delete Doctor" withArrow>
               <ActionIcon variant="light" color="red" size="md" onClick={handleDelete}>
@@ -396,18 +429,34 @@ export default function DoctorProfile() {
               <div>
                 <span className={styles.infoLabel}>Spouse</span>
                 <span className={styles.infoValue}>
-                  {doctor.spouseName}
-                  {doctor.anniversary && ` — Anniversary: ${formatDate(doctor.anniversary)}`}
+                  <div className="font-semibold text-slate-800">{doctor.spouseName}</div>
+                  {(doctor as any).spouseBirthDate && (
+                    <div className="text-slate-500 text-xs mt-0.5">Date of Birth: {formatDate((doctor as any).spouseBirthDate)}</div>
+                  )}
+                  {doctor.anniversary && (
+                    <div className="text-slate-500 text-xs mt-0.5">Anniversary Date: {formatDate(doctor.anniversary)}</div>
+                  )}
                 </span>
               </div>
             </div>
           )}
-          {childrenNames.length > 0 && (
+          {childrenData.length > 0 && (
             <div className={styles.infoItem}>
               <IconUser size={15} className={styles.infoIcon} />
               <div>
                 <span className={styles.infoLabel}>Children</span>
-                <span className={styles.infoValue}>{childrenNames.join(', ')}</span>
+                <span className={styles.infoValue}>
+                  <Stack gap="md" mt="xs">
+                    {childrenData.map((child, index) => (
+                      <div key={index} className="text-sm">
+                        <div className="font-semibold text-slate-800">{index + 1}. {child.name.toUpperCase()}</div>
+                        {child.birthDate && (
+                          <div className="text-slate-500 text-xs mt-0.5">DOB: {formatDOB(child.birthDate)}</div>
+                        )}
+                      </div>
+                    ))}
+                  </Stack>
+                </span>
               </div>
             </div>
           )}
@@ -420,6 +469,58 @@ export default function DoctorProfile() {
               </div>
             </div>
           )}
+          {doctor.hospitalName && (
+            <div className={styles.infoItem}>
+              <IconBuildingStore size={15} className={styles.infoIcon} />
+              <div>
+                <span className={styles.infoLabel}>Primary Hospital</span>
+                <span className={styles.infoValue}>
+                  {doctor.hospitalName}
+                  {doctor.hospitalOpeningDate && ` (Opened: ${formatDate(doctor.hospitalOpeningDate)})`}
+                </span>
+              </div>
+            </div>
+          )}
+          {(() => {
+            const docAny = doctor as any;
+            if (docAny.hospitalsCount > 0 && docAny.hospitalNames) {
+              try {
+                let hospitalNames: string[] = [];
+                let hospitalOpeningDates: (string | null)[] = [];
+                
+                if (docAny.hospitalNames) {
+                  hospitalNames = docAny.hospitalNames.trim().startsWith('[')
+                    ? JSON.parse(docAny.hospitalNames)
+                    : docAny.hospitalNames.split(',').map((n: string) => n.trim());
+                }
+                
+                if (docAny.hospitalOpeningDates) {
+                  const parsed = JSON.parse(docAny.hospitalOpeningDates);
+                  hospitalOpeningDates = Array.isArray(parsed) ? parsed : [];
+                }
+                
+                if (hospitalNames.length > 0) {
+                  return (
+                    <div className={styles.infoItem}>
+                      <IconBuildingStore size={15} className={styles.infoIcon} />
+                      <div>
+                        <span className={styles.infoLabel}>Associated Hospitals</span>
+                        <span className={styles.infoValue}>
+                          {hospitalNames.map((name, idx) => {
+                            const odate = hospitalOpeningDates[idx];
+                            return odate ? `${name} (Opened: ${formatDate(odate)})` : name;
+                          }).join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+              } catch (e) {
+                console.error('Failed to parse multiple hospital details:', e);
+              }
+            }
+            return null;
+          })()}
         </div>
       </Card>
 
@@ -461,7 +562,7 @@ export default function DoctorProfile() {
             </Button>
           </Group>
           <Stack gap="sm">
-            {(doctor as any).pharmacies?.map((pharmacy: any) => (
+            {((doctor as any).pharmacies || []).slice(0, 4).map((pharmacy: any) => (
               <Paper key={pharmacy.id} shadow="xs" radius="md" p="md" withBorder className={styles.pharmacyRow}>
                 <Group justify="space-between" align="center">
                   <Group gap="md">
@@ -493,6 +594,18 @@ export default function DoctorProfile() {
                 </Group>
               </Paper>
             ))}
+            {doctor.pharmacies && doctor.pharmacies.length > 4 && (
+              <Group justify="center" mt="md">
+                <Button
+                  variant="subtle"
+                  color="indigo"
+                  onClick={() => setSeeAllPharmaciesOpen(true)}
+                  className="cursor-pointer"
+                >
+                  See More ({doctor.pharmacies.length - 4} more)
+                </Button>
+              </Group>
+            )}
             {(!(doctor as any).pharmacies || (doctor as any).pharmacies.length === 0) && (
               <Paper p="xl" radius="md" withBorder className={styles.emptyState}>
                 <Stack align="center" gap="xs">
@@ -535,30 +648,84 @@ export default function DoctorProfile() {
           </Group>
 
           {prescribedMedicines.length > 0 ? (
-            <div className={styles.medicineGrid}>
-              {prescribedMedicines.map(med => (
-                <div
-                  key={med.id}
-                  className={`${styles.medicineChip} ${med.isAutomatic ? 'bg-teal-50 border-teal-200 text-teal-700' : ''}`}
-                >
-                  <IconPill size={13} className={med.isAutomatic ? 'text-teal-600' : styles.medIcon} />
-                  <span>{med.name}</span>
-                  {med.isAutomatic ? (
-                    <Badge color="teal" variant="light" size="xs" ml="xs" style={{ height: 16, fontSize: 9 }}>Auto</Badge>
-                  ) : (
-                    <Tooltip label="Remove" withArrow>
-                      <button
-                        className={styles.medRemoveBtn}
-                        onClick={() => handleRemoveMedicine(med.id)}
-                        disabled={medRemoving === med.id}
-                      >
-                        {medRemoving === med.id ? '...' : <IconX size={11} />}
-                      </button>
-                    </Tooltip>
-                  )}
-                </div>
-              ))}
-            </div>
+            <Table
+              striped
+              highlightOnHover
+              withTableBorder
+              withColumnBorders
+              style={{ borderRadius: 10, overflow: 'hidden', fontSize: 13 }}
+            >
+              <Table.Thead style={{ background: '#f8fafc' }}>
+                <Table.Tr>
+                  <Table.Th style={{ width: 48, textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: 12 }}>#</Table.Th>
+                  <Table.Th style={{ color: '#64748b', fontWeight: 700, fontSize: 12 }}>Medicine Name</Table.Th>
+                  <Table.Th style={{ width: 110, textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: 12 }}>Type</Table.Th>
+                  <Table.Th style={{ width: 80, textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: 12 }}>Action</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {prescribedMedicines.map((med, idx) => (
+                  <Table.Tr key={med.id}>
+                    <Table.Td style={{ textAlign: 'center', color: '#94a3b8', fontWeight: 600, fontSize: 12 }}>
+                      {idx + 1}
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" align="center">
+                        <IconPill size={13} color={med.isAutomatic ? '#0d9488' : '#6366f1'} />
+                        <Text size="sm" fw={500}>{med.name}</Text>
+                      </Group>
+                    </Table.Td>
+                    <Table.Td style={{ textAlign: 'center' }}>
+                      {med.isAutomatic ? (
+                        <Badge
+                          color="green"
+                          variant="filled"
+                          size="sm"
+                          radius="sm"
+                          style={{ letterSpacing: '0.04em', fontWeight: 700, fontSize: 10 }}
+                        >
+                          AUTO
+                        </Badge>
+                      ) : (
+                        <Badge
+                          color="red"
+                          variant="filled"
+                          size="sm"
+                          radius="sm"
+                          style={{ letterSpacing: '0.04em', fontWeight: 700, fontSize: 10 }}
+                        >
+                          MANUAL
+                        </Badge>
+                      )}
+                    </Table.Td>
+                    <Table.Td style={{ textAlign: 'center' }}>
+                      {med.isAutomatic ? (
+                        <Tooltip label="Auto-linked from pharmacy data — cannot be removed" withArrow>
+                          <span style={{ cursor: 'not-allowed', display: 'inline-flex' }}>
+                            <ActionIcon variant="subtle" color="gray" size="sm" disabled>
+                              <IconX size={13} />
+                            </ActionIcon>
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip label="Remove medicine" withArrow>
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            size="sm"
+                            onClick={() => handleRemoveMedicine(med.id)}
+                            loading={medRemoving === med.id}
+                            aria-label={`Remove ${med.name}`}
+                          >
+                            <IconX size={13} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
           ) : (
             <Paper p="xl" radius="md" withBorder className={styles.emptyState}>
               <Stack align="center" gap="xs">
@@ -722,6 +889,68 @@ export default function DoctorProfile() {
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      {/* ── See More Pharmacies Modal (Glassmorphism Style) ── */}
+      <Modal
+        opened={seeAllPharmaciesOpen}
+        onClose={() => setSeeAllPharmaciesOpen(false)}
+        title={<Text fw={800} size="lg">All Associated Pharmacies</Text>}
+        size="lg"
+        centered
+        overlayProps={{
+          backgroundOpacity: 0.55,
+          blur: 10,
+        }}
+        styles={{
+          content: {
+            background: 'rgba(255, 255, 255, 0.8)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            borderRadius: '16px',
+            boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+          }
+        }}
+      >
+        <ScrollArea h={400} offsetScrollbars>
+          <Stack gap="sm">
+            {(doctor as any).pharmacies?.map((pharmacy: any) => (
+              <Paper key={pharmacy.id} shadow="xs" radius="md" p="md" withBorder className={styles.pharmacyRow}>
+                <Group justify="space-between" align="center">
+                  <Group gap="md">
+                    <div className={styles.pharmIcon}>
+                      <IconBuildingStore size={18} strokeWidth={1.5} />
+                    </div>
+                    <div>
+                      <Text
+                        fw={600}
+                        size="sm"
+                        style={{ cursor: 'pointer', color: '#4f46e5' }}
+                        onClick={() => {
+                          setSeeAllPharmaciesOpen(false);
+                          navigate(`/pharmacies/${pharmacy.id}`);
+                        }}
+                      >
+                        {pharmacy.name}
+                      </Text>
+                      <Text size="xs" c="dimmed">{pharmacy.address}</Text>
+                    </div>
+                  </Group>
+                  <Tooltip label="Unlink Pharmacy" withArrow>
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      onClick={() => handleUnlinkPharmacy(pharmacy.id)}
+                    >
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+              </Paper>
+            ))}
+          </Stack>
+        </ScrollArea>
       </Modal>
     </div>
   );

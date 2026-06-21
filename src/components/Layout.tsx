@@ -30,7 +30,7 @@ import PageLoader from './PageLoader';
 interface NavItemDef {
   path: string;
   label: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<any>;
   badgeCount?: number;
 }
 
@@ -54,6 +54,7 @@ export default function Layout() {
   const location  = useLocation();
   const { logout, username, firstName, lastName, checkSession, updateActivity } = useAuthStore();
   const { navigate: navNavigate } = useNavigationStore();
+  const { selectedAnalyticsUploadId } = useAppStore();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -190,7 +191,13 @@ export default function Layout() {
               : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 font-medium'
             }
           `}
-          onClick={() => navigate(item.path)}
+          onClick={() => {
+            if (item.path === '/analytics' && selectedAnalyticsUploadId) {
+              navigate(`/analytics?uploadId=${selectedAnalyticsUploadId}`);
+            } else {
+              navigate(item.path);
+            }
+          }}
           aria-current={active ? 'page' : undefined}
         >
           <Icon
@@ -576,7 +583,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-8 py-8 relative">
+        <div className="flex-1 overflow-y-auto px-8 pt-8 pb-0 relative">
           <Outlet />
         </div>
       </main>

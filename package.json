@@ -88,11 +88,27 @@
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
       "node_modules/pdf-parse/**/*",
-      "node_modules/bindings/**/*"
+      "node_modules/bindings/**/*",
+      "node_modules/electron-store/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "data/suratpharma.db",
+        "to": "data/suratpharma.db"
+      },
+      {
+        "from": "drizzle",
+        "to": "drizzle"
+      }
     ],
     "electronVersion": "40.10.0",
     "directories": {
-      "output": "release",
+      "output": "dist-release",
       "buildResources": "build"
     },
     "files": [

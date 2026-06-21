@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import { eq, desc, inArray, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import * as XLSX from 'xlsx';
-import { getDb } from '../db/index';
+import { getDb, getSqlite } from '../db/index';
 import { excelUploads, doctors, pharmacies, products, pharmacyProducts, salesTransactions } from '../db/schema';
+import { AiService } from '../services/AiService';
+import { exec } from 'child_process';
+import path from 'path';
+import { BrowserWindow } from 'electron';
 
 const excelRouter = new Hono();
 
@@ -43,6 +47,16 @@ excelRouter.get('/doctor-business', async (c) => {
     const txns = uploadId
       ? db.select().from(salesTransactions).where(eq(salesTransactions.uploadId, uploadId)).all()
       : db.select().from(salesTransactions).all();
+
+    // Extract transaction date range (min and max transaction dates)
+    let minDate: string | null = null;
+    let maxDate: string | null = null;
+    for (const txn of txns) {
+      if (txn.date) {
+        if (!minDate || txn.date < minDate) minDate = txn.date;
+        if (!maxDate || txn.date > maxDate) maxDate = txn.date;
+      }
+    }
 
     // Aggregate: pharmacyId → { amount, saleQty } per productId
     const pharmacyAmountMap = new Map<number, Map<number, { amount: number; saleQty: number }>>();
@@ -99,36 +113,26 @@ excelRouter.get('/doctor-business', async (c) => {
         medicines.sort((a, b) => b.amount - a.amount);
       }
 
-      if (docId !== null) {
-        // Mapped pharmacy: only include it in the doctor's group if it has transactions
-        if (pharmacyTotal > 0) {
-          const group = doctorGroups.get(docId);
-          if (group) {
-            group.pharmacies.push({
-              pharmacyId:   pharmacy.id,
-              pharmacyName: pharmacy.name,
-              totalAmount:  pharmacyTotal,
-              medicines,
-            });
-          }
-        }
-      } else {
-        // Unlinked pharmacy: only include it in the unlinked group if it has transactions
-        if (pharmacyTotal > 0) {
-          if (!doctorGroups.has(null)) {
-            doctorGroups.set(null, {
-              doctorId: null,
-              doctorName: 'Unlinked Pharmacies',
-              pharmacies: []
-            });
-          }
-          doctorGroups.get(null)!.pharmacies.push({
-            pharmacyId:   pharmacy.id,
-            pharmacyName: pharmacy.name,
-            totalAmount:  pharmacyTotal,
-            medicines,
+      let group = docId !== null ? doctorGroups.get(docId) : null;
+      if (!group) {
+        // Defensive fallback: if doctor is missing/deleted or doctorId is null, map to Unlinked Pharmacies so sales NEVER vanish!
+        if (!doctorGroups.has(null)) {
+          doctorGroups.set(null, {
+            doctorId: null,
+            doctorName: 'Unlinked Pharmacies',
+            pharmacies: []
           });
         }
+        group = doctorGroups.get(null)!;
+      }
+
+      if (pharmacyTotal > 0) {
+        group.pharmacies.push({
+          pharmacyId:   pharmacy.id,
+          pharmacyName: pharmacy.name,
+          totalAmount:  pharmacyTotal,
+          medicines,
+        });
       }
     }
 
@@ -150,7 +154,7 @@ excelRouter.get('/doctor-business', async (c) => {
     // Apply limit
     if (limit > 0) result = result.slice(0, limit);
 
-    return c.json({ success: true, data: result });
+    return c.json({ success: true, data: result, minDate, maxDate });
   } catch (err: any) {
     console.error('[excel/doctor-business]', err);
     return c.json({ success: false, error: `Failed to compute doctor business: ${err?.message}` }, 500);
@@ -522,98 +526,8 @@ function isPdfBuf(buf: Buffer): boolean {
  */
 async function extractRowsFromBuffer(buf: Buffer): Promise<any[]> {
   if (isPdfBuf(buf)) {
-    try {
-      const pdfParse = (await import('pdf-parse')).default;
-      const pdfData  = await pdfParse(buf);
-      const text     = pdfData.text || '';
-
-      const rawLines: string[] = text
-        .split('\n')
-        .map((l: string) => l.trim())
-        .filter((l: string) => l.length > 0);
-
-      if (rawLines.length < 2) return [];
-
-      // Find the column-header line: must contain BOTH 'product' AND 'amount'
-      let headerLineIdx = -1;
-      for (let i = 0; i < Math.min(rawLines.length, 30); i++) {
-        const lower = rawLines[i].toLowerCase();
-        if (lower.includes('product') && lower.includes('amount')) {
-          headerLineIdx = i;
-          break;
-        }
-      }
-
-      if (headerLineIdx !== -1) {
-        // Regex: product name followed by exactly 4 numeric groups ending in exactly two decimal places.
-        // Resolves characters run together without spaces (e.g. MOTOKAP 3D+ TAB0.000.003.00504.12).
-        const productRowRegex = /^(.+?)\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*(\d+[\d.,]*\.\d{2})\s*$/;
-        const rows: any[] = [];
-
-        for (let i = headerLineIdx + 1; i < rawLines.length; i++) {
-          const line  = rawLines[i];
-          const lower = line.toLowerCase();
-
-          // Noise filter rules: skip party totals, page metadata, distributor address, phone numbers, page numbers, repeating headers
-          const isNoise =
-            lower.startsWith('party total') ||
-            lower.startsWith('grand total') ||
-            lower === 'total' ||
-            lower === 'grandtotal' ||
-            lower.includes('pharma distributors') ||
-            lower.includes('surat dawa bazaar') ||
-            lower.includes('vastadevdi road') ||
-            lower.includes('katargam') ||
-            lower.includes('6th floor') ||
-            lower.includes('601 to 603') ||
-            lower.includes('9898530808') ||
-            lower.includes('0261') ||
-            lower.includes('productfreefreeamt') ||
-            (lower.includes('product') && lower.includes('amount') && lower.includes('free')) ||
-            lower.includes('wise list report') ||
-            lower.includes('product + party') ||
-            lower.includes('page') ||
-            /^\d+\/\d+$/.test(lower) ||
-            (lower.startsWith('from:') && lower.includes('to:'));
-
-          if (isNoise) continue;
-
-          const match = productRowRegex.exec(line);
-          if (match) {
-            rows.push({
-              Product: match[1].trim(),
-              Free:    match[2].replace(/,/g, ''),
-              FreeAmt: match[3].replace(/,/g, ''),
-              SaleQty: match[4].replace(/,/g, ''),
-              Amount:  match[5].replace(/,/g, ''),
-            });
-          } else {
-            rows.push({ Product: line });
-          }
-        }
-        return rows;
-      }
-
-      // Fallback: delimiter-based for CSV/TSV inside PDF
-      const tabCount  = rawLines.filter((l: string) => l.includes('\t')).length;
-      const delimiter = tabCount > rawLines.length / 2 ? '\t' : ',';
-      const headers   = rawLines[0].split(delimiter).map((h: string) => h.trim()).filter(Boolean);
-      if (headers.length === 0) return [];
-
-      const rows: any[] = [];
-      for (let i = 1; i < rawLines.length; i++) {
-        const cells = rawLines[i].split(delimiter).map((c: string) => c.trim());
-        if (cells.every((c: string) => c === '')) continue;
-        const row: Record<string, string> = {};
-        headers.forEach((h: string, idx: number) => { row[h] = cells[idx] ?? ''; });
-        rows.push(row);
-      }
-      return rows;
-
-    } catch (err) {
-      console.error('[excel/history] pdf-parse failed:', err);
-      return [];
-    }
+    // Default to 'party_report' format for the history enrichment parsing
+    return await AiService.parsePdfContent(buf, 'party_report');
   } else {
     try {
       const wb    = XLSX.read(buf, { type: 'buffer' });
@@ -891,6 +805,96 @@ excelRouter.post('/print-pdf', async (c) => {
   } catch (err: any) {
     console.error('[PDF Export Route Error]', err);
     return c.json({ success: false, error: err.message || 'Failed to print PDF' }, 500);
+  }
+});
+
+excelRouter.get('/pandas-analytics', async (c) => {
+  try {
+    const uploadIdStr = c.req.query('uploadId') || '';
+    const uploadId = Number(uploadIdStr);
+    const sqlite = getSqlite();
+
+    const hasUploadId = !isNaN(uploadId) && uploadId > 0;
+
+    // ── 1. Top 10 Pharmacies by Revenue ──
+    const pharmQuery = `
+      SELECT p.name AS name, SUM(st.amount) AS revenue
+      FROM SalesTransaction st
+      JOIN Pharmacy p ON st.pharmacyId = p.id
+      ${hasUploadId ? 'WHERE st.uploadId = ?' : ''}
+      GROUP BY st.pharmacyId
+      ORDER BY revenue DESC
+      LIMIT 10
+    `;
+    const topPharmacies = hasUploadId
+      ? sqlite.prepare(pharmQuery).all(uploadId)
+      : sqlite.prepare(pharmQuery).all();
+
+    // ── 2. Top 10 Doctors by Revenue ──
+    const docQuery = `
+      SELECT 
+        COALESCE(d.name, 'Unlinked Pharmacies') AS name, 
+        SUM(st.amount) AS revenue
+      FROM SalesTransaction st
+      JOIN Pharmacy p ON st.pharmacyId = p.id
+      LEFT JOIN Doctor d ON p.doctorId = d.id
+      ${hasUploadId ? 'WHERE st.uploadId = ?' : ''}
+      GROUP BY p.doctorId
+      ORDER BY revenue DESC
+      LIMIT 10
+    `;
+    const topDoctors = hasUploadId
+      ? sqlite.prepare(docQuery).all(uploadId)
+      : sqlite.prepare(docQuery).all();
+
+    // ── 3. Top 10 Products by Revenue & Qty ──
+    const prodQuery = `
+      SELECT 
+        pr.name AS name, 
+        SUM(st.amount) AS revenue, 
+        SUM(st.saleQty) AS quantity
+      FROM SalesTransaction st
+      JOIN Product pr ON st.productId = pr.id
+      ${hasUploadId ? 'WHERE st.uploadId = ?' : ''}
+      GROUP BY st.productId
+      ORDER BY revenue DESC
+      LIMIT 10
+    `;
+    const topProducts = hasUploadId
+      ? sqlite.prepare(prodQuery).all(uploadId)
+      : sqlite.prepare(prodQuery).all();
+
+    // ── 4. Revenue per Doctor Ratio ──
+    const ratioQuery = `
+      SELECT 
+        COALESCE(d.name, 'Unlinked Pharmacies') AS name, 
+        COUNT(DISTINCT p.id) AS pharmacies, 
+        SUM(st.amount) AS revenue, 
+        (SUM(st.amount) / CAST(COUNT(DISTINCT p.id) AS REAL)) AS ratio
+      FROM SalesTransaction st
+      JOIN Pharmacy p ON st.pharmacyId = p.id
+      LEFT JOIN Doctor d ON p.doctorId = d.id
+      ${hasUploadId ? 'WHERE st.uploadId = ?' : ''}
+      GROUP BY p.doctorId
+      ORDER BY ratio DESC
+    `;
+    const doctorRatio = hasUploadId
+      ? sqlite.prepare(ratioQuery).all(uploadId)
+      : sqlite.prepare(ratioQuery).all();
+
+    return c.json({
+      success: true,
+      data: {
+        topPharmacies,
+        topDoctors,
+        topProducts,
+        doctorRatio
+      }
+    });
+
+  } catch (err: any) {
+    console.error('[pandas-analytics] Router error:', err);
+    return c.json({ success: false, error: err.message || 'Server error' }, 500);
   }
 });
 

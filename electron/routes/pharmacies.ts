@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { eq, like, or, desc, count } from 'drizzle-orm';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { getDb } from '../db/index';
 import { pharmacies, doctors, pharmacyProducts, products } from '../db/schema';
 
@@ -12,13 +13,15 @@ const indianPhoneRegex = /^(\+91|91)?[6-9]\d{9}$/;
 const pharmacyCreateSchema = z.object({
   name:           z.string().trim().min(2, 'Pharmacy name must be at least 2 characters'),
   ownerName:      z.string().trim().min(2, 'Owner name is required'),
-  licenseId:      z.string().trim().min(3, 'License ID is required'),
+  licenseId:      z.string().trim().nullable().optional().or(z.literal('')),
   address:        z.string().trim().min(3, 'Address is required'),
   contact:        z.string().trim().regex(indianPhoneRegex, 'Enter a valid 10-digit Indian mobile number'),
   gstNumber:      z.string().trim().nullable().optional(),
   drugLicense:    z.string().trim().nullable().optional(),
   ownerBirthDate: z.string().nullable().optional(),
   doctorId:       z.number().int().positive().nullable().optional(),
+  primaryContact: z.string().trim().regex(indianPhoneRegex, 'Enter a valid 10-digit Indian mobile number').nullable().optional().or(z.literal('')),
+  secondaryContact: z.string().trim().regex(indianPhoneRegex, 'Enter a valid 10-digit Indian mobile number').nullable().optional().or(z.literal('')),
 });
 
 const pharmacyUpdateSchema = pharmacyCreateSchema.partial().extend({
@@ -33,7 +36,7 @@ pharmaciesRouter.get('/', async (c) => {
   try {
     const db     = getDb();
     const page   = Math.max(1, Number(c.req.query('page'))  || 1);
-    const limit  = Math.min(500, Math.max(1, Number(c.req.query('limit')) || 100));
+    const limit  = Math.min(500, Math.max(1, Number(c.req.query('limit')) || 25));
     const offset = (page - 1) * limit;
     const search = c.req.query('search')?.trim();
 
@@ -64,6 +67,8 @@ pharmaciesRouter.get('/', async (c) => {
         address:   pharmacies.address,
         licenseId: pharmacies.licenseId,
         doctorId:  pharmacies.doctorId,
+        primaryContact: pharmacies.primaryContact,
+        secondaryContact: pharmacies.secondaryContact,
         createdAt: pharmacies.createdAt,
       })
       .from(pharmacies)
@@ -157,13 +162,15 @@ pharmaciesRouter.post('/', async (c) => {
     const result = db.insert(pharmacies).values({
       name:           p.name,
       ownerName:      p.ownerName,
-      licenseId:      p.licenseId,
+      licenseId:      (p.licenseId && p.licenseId.trim()) ? p.licenseId.trim() : `AUTO-${crypto.randomUUID()}`,
       gstNumber:      p.gstNumber || null,
       drugLicense:    p.drugLicense || null,
       address:        p.address,
       contact:        p.contact,
       ownerBirthDate: p.ownerBirthDate || null,
       doctorId:       p.doctorId || null,
+      primaryContact: p.primaryContact || null,
+      secondaryContact: p.secondaryContact || null,
     }).returning().get();
 
     return c.json({ success: true, data: result }, 201);
@@ -200,12 +207,14 @@ pharmaciesRouter.put('/:id', async (c) => {
     const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (body.name)           updateData.name           = body.name;
     if (body.ownerName)      updateData.ownerName      = body.ownerName;
-    if (body.licenseId)      updateData.licenseId      = body.licenseId;
+    if ('licenseId' in body) updateData.licenseId      = (body.licenseId && body.licenseId.trim()) ? body.licenseId.trim() : `AUTO-${crypto.randomUUID()}`;
     if (body.address)        updateData.address        = body.address;
     if (body.contact)        updateData.contact        = body.contact;
     if (body.gstNumber !== undefined)      updateData.gstNumber      = body.gstNumber || null;
     if (body.drugLicense !== undefined)    updateData.drugLicense    = body.drugLicense || null;
     if (body.ownerBirthDate !== undefined) updateData.ownerBirthDate = body.ownerBirthDate || null;
+    if (body.primaryContact !== undefined) updateData.primaryContact = body.primaryContact || null;
+    if (body.secondaryContact !== undefined) updateData.secondaryContact = body.secondaryContact || null;
     if ('doctorId' in body)               updateData.doctorId       = body.doctorId || null;
 
     const result = db.update(pharmacies).set(updateData).where(eq(pharmacies.id, id)).returning().get();

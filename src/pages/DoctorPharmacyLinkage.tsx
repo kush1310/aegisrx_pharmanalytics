@@ -12,12 +12,13 @@ import {
   IconLink, IconUnlink, IconStethoscope, IconPrescription,
   IconDownload, IconFilter, IconEdit,
   IconCheck, IconX, IconSortAscending, IconSortDescending,
-  IconUpload, IconFileSpreadsheet, IconRefresh
+  IconUpload, IconFileSpreadsheet, IconRefresh,
+  IconChevronLeft, IconChevronRight
 } from '@tabler/icons-react';
 import Fuse from 'fuse.js';
 import PageHeader from '@/components/PageHeader';
 import { api } from '@/lib/api';
-import { exportToCSV } from '@/utils/export';
+import { exportListToExcel } from '@/utils/export';
 import styles from './DoctorPharmacyLinkage.module.css';
 
 interface LinkageRow {
@@ -56,6 +57,9 @@ export default function DoctorPharmacyLinkage() {
 
   const [editingPharmacyId, setEditingPharmacyId] = useState<number | null>(null);
   const [editDoctorId, setEditDoctorId] = useState<string | null>(null);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
   const [saving, setSaving] = useState(false);
 
   const fetchLinkages = useCallback(async () => {
@@ -221,6 +225,18 @@ export default function DoctorPharmacyLinkage() {
     return results;
   }, [linkages, searchQuery, fuse, filterType, sortField, sortDir]);
 
+  // Reset page when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterType]);
+
+  const itemsPerPage = 25;
+  const totalPages = Math.ceil(processedData.length / itemsPerPage);
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return processedData.slice(start, start + itemsPerPage);
+  }, [processedData, currentPage]);
+
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -296,15 +312,21 @@ export default function DoctorPharmacyLinkage() {
     });
   };
 
-  const handleExportCSV = () => {
-    const csvData = processedData.map((row, idx) => ({
-      '#': idx + 1,
-      'Pharmacy': row.pharmacyName,
-      'Doctor': row.doctorName || 'Not Linked',
-      'Specialization': row.doctorSpecialization || '-',
-      'Status': row.isDraft ? 'Draft' : 'Verified',
+  const handleExportExcel = () => {
+    const exportData = processedData.map((row, idx) => ({
+      index:          idx + 1,
+      pharmacyName:   row.pharmacyName,
+      doctorName:     row.doctorName || 'Not Linked',
+      specialization: row.doctorSpecialization || '-',
+      status:         row.isDraft ? 'Draft' : 'Verified',
     }));
-    exportToCSV(csvData, `doctor_pharmacy_linkage_${new Date().toISOString().split('T')[0]}`, ['#', 'Pharmacy', 'Doctor', 'Specialization', 'Status']);
+    exportListToExcel(
+      exportData,
+      `doctor_pharmacy_linkage_${new Date().toISOString().split('T')[0]}`,
+      ['#', 'Pharmacy', 'Doctor', 'Specialization', 'Status'],
+      ['index', 'pharmacyName', 'doctorName', 'specialization', 'status'],
+      'Linkage'
+    );
   };
 
   const handleSaveAllDrafts = async () => {
@@ -356,11 +378,11 @@ export default function DoctorPharmacyLinkage() {
           <Group>
             <Button
               variant="light"
-              color="gray"
+              color="blue"
               leftSection={<IconDownload size={18} />}
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
             >
-              Export CSV
+              Export Excel
             </Button>
             <Button
               leftSection={<IconLink size={18} />}
@@ -544,19 +566,19 @@ export default function DoctorPharmacyLinkage() {
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRowSkeleton key={i} columnCount={6} rowIndex={i} />
                 ))
-              ) : processedData.length === 0 ? (
+              ) : paginatedData.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={6}>
                     <Text ta="center" py="xl" c="dimmed">No linkages found</Text>
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                processedData.map((row, idx) => (
+                paginatedData.map((row, idx) => (
                   <Table.Tr key={row.pharmacyId}>
                     <Table.Td>
-                      <Badge size="xs" color={idx < 3 ? 'yellow' : idx < 10 ? 'blue' : 'gray'}>
-                        #{idx + 1}
-                      </Badge>
+                      <Text size="sm" c="dimmed" fw={600}>
+                        {(currentPage - 1) * itemsPerPage + idx + 1}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
                       <Group gap="xs" wrap="nowrap">
@@ -656,6 +678,37 @@ export default function DoctorPharmacyLinkage() {
             </Table.Tbody>
           </Table>
         </ScrollArea>
+        {totalPages > 1 && (
+          <div className={styles.pagination}>
+            <Button
+              variant="light"
+              size="sm"
+              leftSection={<IconChevronLeft size={16} />}
+              disabled={currentPage <= 1}
+              onClick={() => {
+                setCurrentPage(prev => Math.max(1, prev - 1));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            >
+              Previous 25
+            </Button>
+            <Text className={styles.paginationInfo}>
+              {Math.min(processedData.length, (currentPage - 1) * itemsPerPage + 1)}–{Math.min(processedData.length, currentPage * itemsPerPage)} of {processedData.length}
+            </Text>
+            <Button
+              variant="light"
+              size="sm"
+              rightSection={<IconChevronRight size={16} />}
+              disabled={currentPage >= totalPages}
+              onClick={() => {
+                setCurrentPage(prev => Math.min(totalPages, prev + 1));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            >
+              Next 25
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   </div>

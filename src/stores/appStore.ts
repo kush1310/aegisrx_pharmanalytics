@@ -42,6 +42,8 @@ interface AppState {
 
   hasLoadedHistory:     boolean;
   setHasLoadedHistory:  (val: boolean) => void;
+  selectedAnalyticsUploadId: string | null;
+  setSelectedAnalyticsUploadId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -71,6 +73,8 @@ export const useAppStore = create<AppState>((set) => ({
   searchQuery:            '',
   hasLoadedHistory:       false,
   setHasLoadedHistory: (val) => set({ hasLoadedHistory: val }),
+  selectedAnalyticsUploadId: null,
+  setSelectedAnalyticsUploadId: (id) => set({ selectedAnalyticsUploadId: id }),
 
   fetchStats: async () => {
     set({ isLoadingStats: true });
@@ -91,7 +95,7 @@ export const useAppStore = create<AppState>((set) => ({
    * @param limit  - Records per page; defaults to 50, max 200.
    * @param search - Optional search string for server-side LIKE filter on name/contact/specialization.
    */
-  fetchDoctors: async (page = 1, limit = 50, search = '') => {
+  fetchDoctors: async (page = 1, limit = 30, search = '') => {
     set({ isLoadingDoctors: true });
     try {
       const params = new URLSearchParams();
@@ -124,7 +128,7 @@ export const useAppStore = create<AppState>((set) => ({
    * @param limit  - Records per page; defaults to 100, max 500.
    * @param search - Optional search string for server-side LIKE filter on name/owner/contact.
    */
-  fetchPharmacies: async (page = 1, limit = 100, search = '') => {
+  fetchPharmacies: async (page = 1, limit = 30, search = '') => {
     set({ isLoadingPharmacies: true });
     try {
       const params = new URLSearchParams();
@@ -154,7 +158,7 @@ export const useAppStore = create<AppState>((set) => ({
     finally { set({ isLoadingNotifications: false }); }
   },
 
-  fetchProducts: async (page = 1, limit = 100, search = '', sort = 'createdAt', dir = 'desc') => {
+  fetchProducts: async (page = 1, limit = 25, search = '', sort = 'createdAt', dir = 'desc') => {
     set({ isLoadingProducts: true });
     try {
       const params = new URLSearchParams();

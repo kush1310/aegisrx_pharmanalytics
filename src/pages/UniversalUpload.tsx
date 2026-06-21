@@ -124,16 +124,30 @@ export default function UniversalUpload() {
        * fall back to the original ArrayBuffer → Array serialization path.
        */
       const filePath = (file as any).path as string | undefined;
+      const isAbsolutePath = (p: string) => /^[a-zA-Z]:[\\\/]/.test(p) || p.startsWith('\\\\') || p.startsWith('/');
 
-      let result;
-      if (filePath) {
-        // Primary path — Electron desktop: send the OS file path, backend reads file directly
-        result = await api.post('/api/upload/intelligent/upload-by-path', {
-          filePath,
-          fileName: file.name,
-        });
-      } else {
-        // Fallback path — non-Electron or missing path: serialize buffer on renderer
+      let result: any = null;
+      let uploadSuccess = false;
+
+      // Attempt high-performance path-based upload if absolute path is available
+      if (filePath && isAbsolutePath(filePath)) {
+        try {
+          result = await api.post('/api/upload/intelligent/upload-by-path', {
+            filePath,
+            fileName: file.name,
+          });
+          if (result && result.success) {
+            uploadSuccess = true;
+          } else {
+            console.warn('[UniversalUpload] Path upload returned failure, falling back to buffer upload', result?.error);
+          }
+        } catch (pathErr) {
+          console.warn('[UniversalUpload] Path upload failed, falling back to buffer upload', pathErr);
+        }
+      }
+
+      // Fallback: if path upload was not successful or not attempted, serialize file buffer in renderer
+      if (!uploadSuccess) {
         const arrayBuffer = await file.arrayBuffer();
         const uint8Array  = new Uint8Array(arrayBuffer);
         const bufferArray = Array.from(uint8Array);
@@ -143,7 +157,7 @@ export default function UniversalUpload() {
         });
       }
 
-      if (!result.success) throw new Error(result.error);
+      if (!result || !result.success) throw new Error(result?.error || 'Upload failed');
 
       const newUploadId      = (result as any).uploadId;
       const formatStr        = (result as any).format;
@@ -210,7 +224,7 @@ export default function UniversalUpload() {
               color: 'green',
               icon: <IconCircleCheck size={18} />
             });
-            navigate(`/analytics?uploadId=${uploadId}`);
+            navigate(`/analytics?uploadId=${uploadId}&newUpload=true`);
           } else if (format === 'product') {
             notifications.show({
               title: 'Processing Complete',
@@ -360,7 +374,7 @@ export default function UniversalUpload() {
           <Button
             className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold px-6 py-2 rounded-xl shadow-md shadow-indigo-500/25 transition-all hover:-translate-y-0.5 active:translate-y-0"
             leftSection={<IconChartBar size={18} />}
-            onClick={() => navigate(`/analytics?uploadId=${uploadId}`)}
+            onClick={() => navigate(`/analytics?uploadId=${uploadId}&newUpload=true`)}
             loading={!processingComplete}
           >
             View Analytics

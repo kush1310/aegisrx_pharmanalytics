@@ -34,3 +34,18 @@
 .tableHeader th:hover {
   background: #e2e8f0;
 }
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-top: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.paginationInfo {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 600;
+}

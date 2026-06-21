@@ -8,11 +8,18 @@ export interface Doctor {
   birthDate: string | null;
   isMarried: boolean;
   spouseName: string | null;
+  spouseBirthDate: string | null;
   anniversary: string | null;
   childrenCount: number;
   childrenNames: string | null;
+  childrenBirthDates: string | null;
   qualification: string;
   specialization: string;
+  hospitalName: string | null;
+  hospitalOpeningDate: string | null;
+  hospitalsCount: number;
+  hospitalNames: string | null;
+  hospitalOpeningDates: string | null;
   registrationNo?: string | null;
   email?: string | null;
   experienceYrs?: number | null;
@@ -40,6 +47,8 @@ export interface Pharmacy {
   drugLicense: string | null;
   address: string;
   contact: string;
+  primaryContact?: string | null;
+  secondaryContact?: string | null;
   ownerBirthDate: string | null;
   createdAt: string;
   updatedAt: string;
@@ -77,11 +86,12 @@ export interface Notification {
   id: number;
   entityType: 'DOCTOR' | 'PHARMACY_OWNER';
   entityId: number;
-  eventType: 'BIRTHDAY' | 'ANNIVERSARY';
+  eventType: string | null;
   eventDate: string;
   title: string;
   message: string;
   isRead: boolean;
+  isCleared: boolean;
   createdAt: string;
 }
 
@@ -99,11 +109,17 @@ export interface DoctorFormData {
   birthDate: Date | null;
   isMarried: boolean;
   spouseName: string;
+  spouseBirthDate: Date | null;
   anniversary: Date | null;
   childrenCount: number;
-  childrenNames: string[];
+  children: { name: string; birthDate: Date | null }[];
   qualification: string;
   specialization: string;
+  hospitalName: string;
+  hospitalOpeningDate: Date | null;
+  hospitalsCount: number;
+  hospitalNames: string[];
+  hospitalOpeningDates: (Date | null)[];
   registrationNo: string;
   email: string;
   experienceYrs: number;
@@ -117,6 +133,8 @@ export interface PharmacyFormData {
   drugLicense: string;
   address: string;
   contact: string;
+  primaryContact?: string;
+  secondaryContact?: string;
   ownerBirthDate: Date | null;
 }
 

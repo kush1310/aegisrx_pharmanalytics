@@ -58,15 +58,16 @@ import {
   IconSortDescending,
   IconChevronLeft,
   IconChevronRight,
+  IconBuildingStore,
 } from '@tabler/icons-react';
 import { useAppStore } from '@/stores/appStore';
 import type { Pharmacy, PharmacyFormData } from '@/types';
-import { exportPharmacyListPDF } from '@/utils/export';
+import { exportListToExcel } from '@/utils/export';
 import PageHeader from '@/components/PageHeader';
 import { api } from '@/lib/api';
 import styles from './Pharmacies.module.css';
 
-const PHARMACIES_PER_PAGE = 100;
+const PHARMACIES_PER_PAGE = 30;
 
 const initialFormData: PharmacyFormData = {
   name: '',
@@ -76,6 +77,8 @@ const initialFormData: PharmacyFormData = {
   drugLicense: '',
   address: '',
   contact: '',
+  primaryContact: '',
+  secondaryContact: '',
   ownerBirthDate: null
 };
 
@@ -223,6 +226,8 @@ export default function Pharmacies() {
         drugLicense:    pharmacy.drugLicense || '',
         address:        pharmacy.address,
         contact:        pharmacy.contact,
+        primaryContact: pharmacy.primaryContact || '',
+        secondaryContact: pharmacy.secondaryContact || '',
         ownerBirthDate: pharmacy.ownerBirthDate ? new Date(pharmacy.ownerBirthDate) : null
       });
     } else {
@@ -244,7 +249,7 @@ export default function Pharmacies() {
     const newErrors: Record<string, string> = {};
     if (!formData.name.trim())      newErrors.name      = 'Name is required';
     if (!formData.ownerName.trim()) newErrors.ownerName = 'Owner name is required';
-    if (!formData.licenseId.trim()) newErrors.licenseId = 'License ID is required';
+
     if (!formData.address.trim())   newErrors.address   = 'Address is required';
 
     const cleanContact = formData.contact.replace(/\s/g, '');
@@ -252,6 +257,16 @@ export default function Pharmacies() {
       newErrors.contact = 'Contact is required';
     } else if (!/^(?:\+91|91)?[4-9]\d{9}$/.test(cleanContact)) {
       newErrors.contact = 'Must be a valid Indian mobile number (+91 XXXXXXXXXX)';
+    }
+
+    const cleanPrimary = (formData.primaryContact || '').replace(/\s/g, '');
+    if (cleanPrimary && !/^(?:\+91|91)?[4-9]\d{9}$/.test(cleanPrimary)) {
+      newErrors.primaryContact = 'Must be a valid Indian mobile number (+91 XXXXXXXXXX)';
+    }
+
+    const cleanSecondary = (formData.secondaryContact || '').replace(/\s/g, '');
+    if (cleanSecondary && !/^(?:\+91|91)?[4-9]\d{9}$/.test(cleanSecondary)) {
+      newErrors.secondaryContact = 'Must be a valid Indian mobile number (+91 XXXXXXXXXX)';
     }
 
     setErrors(newErrors);
@@ -270,6 +285,8 @@ export default function Pharmacies() {
         drugLicense:    formData.drugLicense || null,
         address:        formData.address,
         contact:        formData.contact,
+        primaryContact: formData.primaryContact || null,
+        secondaryContact: formData.secondaryContact || null,
         ownerBirthDate: formData.ownerBirthDate
           ? (typeof formData.ownerBirthDate === 'string'
               ? new Date(formData.ownerBirthDate).toISOString()
@@ -363,13 +380,22 @@ export default function Pharmacies() {
                   name:         ph.name,
                   ownerName:    ph.ownerName || 'Unknown',
                   licenseId:    ph.licenseId || '-',
+                  gstNumber:    ph.gstNumber || '-',
+                  drugLicense:  ph.drugLicense || '-',
                   contact:      ph.contact || '-',
-                  productCount: (ph as any).products?.length || 0
+                  address:      ph.address || '-',
+                  doctorName:   ph.doctor?.name || 'Not assigned'
                 }));
-                exportPharmacyListPDF(exportData);
+                exportListToExcel(
+                  exportData,
+                  'aegisrx-pharmacies-directory',
+                  ['Pharmacy Name', 'Owner Name', 'License ID', 'GST Number', 'Drug License', 'Phone', 'Address', 'Assigned Doctor'],
+                  ['name', 'ownerName', 'licenseId', 'gstNumber', 'drugLicense', 'contact', 'address', 'doctorName'],
+                  'Pharmacies'
+                );
               }}
             >
-              Export PDF
+              Export Excel
             </Button>
             <Button
               leftSection={<IconPlus size={18} />}
@@ -382,9 +408,9 @@ export default function Pharmacies() {
         }
       />
 
-      <div className="relative mt-6" style={{ minHeight: 'calc(100vh - 200px)' }}>
-        <div>
-
+      <div className="relative mt-6 flex-1 flex flex-col">
+        <div className="flex-grow flex flex-col">
+          <div className="flex-grow pb-16">
         {/* Search + Sort Bar */}
         <Group gap="sm" mt="lg" mb="lg" align="flex-end">
           <PageSearchBar
@@ -431,16 +457,16 @@ export default function Pharmacies() {
           </Menu>
         </Group>
 
-        {/* Skeleton while loading */}
+        {/* List or grid: skeletons inline */}
         {isLoadingPharmacies ? (
-          <PharmacyCardSkeletonGrid count={6} />
+          <PharmacyCardSkeletonGrid count={9} />
         ) : sortedPharmacies.length === 0 ? (
           <Card shadow="sm" radius="lg" p="xl" className={styles.emptyState}>
             <Stack align="center" gap="md">
-              <IconPill size={64} stroke={1} color="var(--color-text-muted)" />
-              <Text size="lg" fw={800}>No pharmacy stores found</Text>
-              <Text c="dimmed" size="sm">
-                {localSearch ? 'Try a different search term' : 'Add your first pharmacy'}
+              <IconBuildingStore size={64} stroke={1} color="var(--color-text-muted)" />
+              <Text size="lg" fw={800}>No pharmacies found</Text>
+              <Text c="dimmed" size="sm" ta="center">
+                {localSearch ? 'Try a different search query' : 'Add your first pharmacy store to get started'}
               </Text>
               {!localSearch && (
                 <Button
@@ -455,12 +481,10 @@ export default function Pharmacies() {
             </Stack>
           </Card>
         ) : (
-          <>
-            <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="lg">
+          <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing="lg">
               {sortedPharmacies.map((pharmacy, index) => (
-                /*
-                 * CSS fadeSlideUp animation replaces framer-motion.
-                 * GPU compositor thread handles the transform/opacity transition.
+                /**
+                 * Pharmacy cards are staggered using a simple CSS animation-delay.
                  * animation-delay staggers cards without mounting 2000 JS observers.
                  * The animation class is defined in Pharmacies.module.css.
                  */
@@ -543,37 +567,39 @@ export default function Pharmacies() {
                 </Card>
               ))}
             </SimpleGrid>
+          )}
 
-            {/* Pagination — shown only when there is more than 1 page */}
-            {pharmacyTotalPages > 1 && (
-              <div className={styles.pagination}>
-                <Button
-                  variant="light"
-                  size="sm"
-                  leftSection={<IconChevronLeft size={16} />}
-                  disabled={pharmacyPage <= 1}
-                  onClick={() => handlePageChange(pharmacyPage - 1)}
-                >
-                  Previous
-                </Button>
-                <Text className={styles.paginationInfo}>
-                  {rangeStart}–{rangeEnd} of {pharmacyTotal}
-                </Text>
-                <Button
-                  variant="light"
-                  size="sm"
-                  rightSection={<IconChevronRight size={16} />}
-                  disabled={pharmacyPage >= pharmacyTotalPages}
-                  onClick={() => handlePageChange(pharmacyPage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            )}
-          </>
+        </div> {/* closes class="flex-grow pb-16" */}
+
+        {/* Pagination */}
+        {!isLoadingPharmacies && sortedPharmacies.length > 0 && pharmacyTotalPages > 1 && (
+          <div className="sticky bottom-0 mt-auto flex items-center justify-center gap-3 py-3.5 bg-gray-50 border-t border-gray-200 z-50 w-[calc(100%+64px)] -ml-8 -mr-8">
+            <Button
+              variant="light"
+              size="sm"
+              leftSection={<IconChevronLeft size={16} />}
+              disabled={pharmacyPage <= 1 || isLoadingPharmacies}
+              onClick={() => handlePageChange(pharmacyPage - 1)}
+            >
+              Previous 30
+            </Button>
+            <Text className="text-[13px] font-semibold text-[#64748b] min-w-[120px] text-center">
+              {rangeStart}–{rangeEnd} of {pharmacyTotal}
+            </Text>
+            <Button
+              variant="light"
+              size="sm"
+              rightSection={<IconChevronRight size={16} />}
+              disabled={pharmacyPage >= pharmacyTotalPages || isLoadingPharmacies}
+              onClick={() => handlePageChange(pharmacyPage + 1)}
+            >
+              Next 30
+            </Button>
+          </div>
         )}
-        </div>
-      </div>
+
+      </div> {/* closes class="flex-1 flex flex-col" */}
+    </div> {/* closes class="relative mt-6 flex-1 flex flex-col" */}
 
       {/* Add/Edit Modal */}
       <Modal
@@ -605,8 +631,7 @@ export default function Pharmacies() {
 
           <TextInput
             label="License ID"
-            placeholder="Unique license number"
-            required
+            placeholder="Unique license number (optional)"
             value={formData.licenseId}
             onChange={(e) => setFormData({ ...formData, licenseId: e.currentTarget.value })}
             error={errors.licenseId}
@@ -653,6 +678,38 @@ export default function Pharmacies() {
               onChange={(date) => setFormData({ ...formData, ownerBirthDate: date as Date | null })}
               maxDate={new Date()}
               clearable
+            />
+          </SimpleGrid>
+
+          <SimpleGrid cols={2}>
+            <Stack gap={4}>
+              <Group justify="space-between" align="center">
+                <Text size="sm" fw={500}>Primary Contact</Text>
+                <Button
+                  variant="transparent"
+                  size="xs"
+                  p={0}
+                  h="auto"
+                  onClick={() => setFormData({ ...formData, primaryContact: formData.contact })}
+                  style={{ fontSize: '11px' }}
+                >
+                  Same as Owner Contact
+                </Button>
+              </Group>
+              <TextInput
+                placeholder="+91 98765 43210 (optional)"
+                value={formData.primaryContact || ''}
+                onChange={(e) => setFormData({ ...formData, primaryContact: e.currentTarget.value })}
+                error={errors.primaryContact}
+              />
+            </Stack>
+
+            <TextInput
+              label="Secondary Contact"
+              placeholder="+91 98765 43210 (optional)"
+              value={formData.secondaryContact || ''}
+              onChange={(e) => setFormData({ ...formData, secondaryContact: e.currentTarget.value })}
+              error={errors.secondaryContact}
             />
           </SimpleGrid>
 

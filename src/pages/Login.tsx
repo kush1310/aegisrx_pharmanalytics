@@ -11,10 +11,11 @@ import {
   Group
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconUser, IconLock, IconLogin, IconSparkles, IconMail, IconArrowLeft, IconKey } from '@tabler/icons-react';
+import { IconUser, IconLock, IconLogin, IconMail, IconArrowLeft, IconKey } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
 import { api } from '../lib/api';
 import PageLoader from '../components/PageLoader';
+import Medical3DHeart from '../components/Medical3DHeart';
 import styles from './Login.module.css';
 
 export default function Login() {
@@ -260,7 +261,9 @@ export default function Login() {
         <Stack gap="lg">
           <Box className={styles.logoContainer}>
             <div className={styles.logoIcon}>
-              <IconSparkles size={42} stroke={1.5} />
+              <div style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+                <Medical3DHeart />
+              </div>
             </div>
             <Text className={styles.appTitle}>
               AegisRx Analytics
